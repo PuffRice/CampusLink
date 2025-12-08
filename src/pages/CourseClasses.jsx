@@ -8,6 +8,9 @@ export default function CourseClasses() {
   const [showModal, setShowModal] = useState(false);
   const [courses, setCourses] = useState({});
   const [faculty, setFaculty] = useState({});
+  const [editingClass, setEditingClass] = useState(null);
+  const [departments, setDepartments] = useState([]);
+  const [selectedDept, setSelectedDept] = useState("all");
 
   async function fetchCourseClasses() {
     setLoading(true);
@@ -25,11 +28,15 @@ export default function CourseClasses() {
   }
 
   async function fetchMetadata() {
+    // Fetch departments
+    const { data: deptData } = await supabase.from("departments").select("*");
+    setDepartments(deptData || []);
+
     // Fetch courses
-    const { data: courseData } = await supabase.from("courses").select("id, course_code, name");
+    const { data: courseData } = await supabase.from("courses").select("id, course_code, name, dept_id");
     const courseMap = {};
     courseData?.forEach((c) => {
-      courseMap[c.id] = `${c.course_code} - ${c.name}`;
+      courseMap[c.id] = { display: `${c.course_code} - ${c.name}`, dept_id: c.dept_id };
     });
     setCourses(courseMap);
 
@@ -54,6 +61,33 @@ export default function CourseClasses() {
     fetchCourseClasses();
   };
 
+  async function handleDelete(classId) {
+    if (!confirm("Are you sure you want to delete this class?")) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("course_classes")
+      .delete()
+      .eq("id", classId);
+
+    if (error) {
+      alert("Error deleting class: " + error.message);
+    } else {
+      alert("Class deleted successfully!");
+      fetchCourseClasses();
+    }
+  }
+
+  function handleEdit(classData) {
+    setEditingClass(classData);
+    setShowModal(true);
+  }
+
+  const filteredClasses = selectedDept === "all"
+    ? courseClasses
+    : courseClasses.filter((cc) => courses[cc.course_id]?.dept_id === parseInt(selectedDept));
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 p-6">
       <div className="max-w-7xl mx-auto">
@@ -64,17 +98,34 @@ export default function CourseClasses() {
           </div>
           <button
             onClick={() => setShowModal(true)}
-            className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-3 rounded-xl font-semibold shadow-lg hover:shadow-xl transition"
+            className="bg-brandButton hover:bg-menuHover text-white px-4 py-2 rounded-md shadow flex items-center gap-2"
           >
             + Add Class
           </button>
+        </div>
+
+        {/* Department Filter */}
+        <div className="mb-6 flex items-center gap-3">
+          <label className="text-sm font-semibold text-slate-900">Filter by Department:</label>
+          <select
+            value={selectedDept}
+            onChange={(e) => setSelectedDept(e.target.value)}
+            className="px-4 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white"
+          >
+            <option value="all">All Departments</option>
+            {departments.map((dept) => (
+              <option key={dept.dept_id} value={dept.dept_id}>
+                {dept.name} ({dept.tag})
+              </option>
+            ))}
+          </select>
         </div>
 
         {loading ? (
           <div className="flex justify-center items-center h-96">
             <div className="text-slate-600 text-lg">Loading course classes...</div>
           </div>
-        ) : courseClasses.length === 0 ? (
+        ) : filteredClasses.length === 0 ? (
           <div className="bg-white rounded-3xl shadow-lg p-8 text-center border border-slate-200">
             <p className="text-slate-600 text-lg mb-4">No course classes found</p>
             <button
@@ -102,7 +153,7 @@ export default function CourseClasses() {
                   </tr>
                 </thead>
                 <tbody>
-                  {courseClasses.map((cc, idx) => (
+                  {filteredClasses.map((cc, idx) => (
                     <tr
                       key={cc.id}
                       className={`${
@@ -110,7 +161,7 @@ export default function CourseClasses() {
                       } border-b border-slate-200 hover:bg-slate-100 transition`}
                     >
                       <td className="px-6 py-4 text-sm text-slate-900 font-medium">
-                        {courses[cc.course_id] || "Loading..."}
+                        {courses[cc.course_id]?.display || "Loading..."}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">{cc.section}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">
@@ -140,8 +191,18 @@ export default function CourseClasses() {
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600 text-center">{cc.seats}</td>
                       <td className="px-6 py-4 text-sm space-x-2">
-                        <button className="text-blue-600 hover:text-blue-700 font-semibold">Edit</button>
-                        <button className="text-red-600 hover:text-red-700 font-semibold">Delete</button>
+                        <button 
+                          onClick={() => handleEdit(cc)}
+                          className="text-blue-600 hover:text-blue-700 font-semibold"
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(cc.id)}
+                          className="text-red-600 hover:text-red-700 font-semibold"
+                        >
+                          Delete
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -155,8 +216,12 @@ export default function CourseClasses() {
       {/* Modal */}
       {showModal && (
         <CreateCourseClassModal
-          onClose={() => setShowModal(false)}
+          onClose={() => {
+            setShowModal(false);
+            setEditingClass(null);
+          }}
           onSuccess={handleClassCreated}
+          editData={editingClass}
         />
       )}
     </div>

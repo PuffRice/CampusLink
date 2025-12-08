@@ -101,6 +101,7 @@ export default function CreateCourseClassModal({ onClose, onSuccess }) {
   const [facultyId, setFacultyId] = useState("");
   const [seats, setSeats] = useState(30);
   const [courseCredits, setCourseCredits] = useState(0);
+  const [nextSectionNumber, setNextSectionNumber] = useState(1);
 
   const [filteredCourses, setFilteredCourses] = useState([]);
   const [availableTimeSlots, setAvailableTimeSlots] = useState([]);
@@ -111,6 +112,29 @@ export default function CreateCourseClassModal({ onClose, onSuccess }) {
   const [showCourseDropdown, setShowCourseDropdown] = useState(false);
 
   const daySlotOptions = ["ST", "TR", "SR", "MW"];
+
+  async function getNextSectionNumber(courseId) {
+    const { data, error } = await supabase
+      .from("course_classes")
+      .select("section")
+      .eq("course_id", courseId);
+
+    if (error) {
+      console.error("Error fetching sections:", error);
+      return 1;
+    }
+
+    if (!data || data.length === 0) {
+      return 1;
+    }
+
+    const sectionNumbers = data
+      .map((item) => parseInt(item.section))
+      .filter((num) => !isNaN(num) && num > 0);
+
+    const maxNumber = sectionNumbers.length > 0 ? Math.max(...sectionNumbers) : 0;
+    return maxNumber + 1;
+  }
 
   async function fetchInitialData() {
     const { data: deptData } = await supabase.from("departments").select("*");
@@ -172,14 +196,10 @@ export default function CreateCourseClassModal({ onClose, onSuccess }) {
     e.preventDefault();
     setLoading(true);
 
-    const selectedCourseObj = courses.find((c) => c.id === selectedCourse);
-    const sectionLetter = String.fromCharCode(65 + Math.floor(Math.random() * 26));
-    const section = `${selectedCourseObj.course_code}-${sectionLetter}`;
-
     const { error } = await supabase.from("course_classes").insert({
       course_id: selectedCourse,
       faculty_id: facultyId,
-      section: section,
+      section: nextSectionNumber,
       day_slot: daySlot,
       room_no: room,
       class_type: classType,
@@ -256,11 +276,13 @@ export default function CreateCourseClassModal({ onClose, onSuccess }) {
                         <button
                           key={c.id}
                           type="button"
-                          onClick={() => {
+                          onClick={async () => {
                             setSelectedCourse(c.id);
                             setCourseCredits(c.credit || 0);
                             setSearchCourse(`${c.course_code} — ${c.name}`);
                             setShowCourseDropdown(false);
+                            const nextNum = await getNextSectionNumber(c.id);
+                            setNextSectionNumber(nextNum);
                           }}
                           className="w-full px-4 py-2 text-left hover:bg-blue-50 transition border-b border-slate-100 last:border-b-0 text-sm"
                         >

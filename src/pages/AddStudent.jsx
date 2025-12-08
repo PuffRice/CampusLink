@@ -1,236 +1,151 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../supabase";
+import AddStudentModal from "../components/AddStudentModal";
 
 export default function AddStudent() {
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [studentId, setStudentId] = useState("");
-  const [deptId, setDeptId] = useState("");
-  const [departments, setDepartments] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [students, setStudents] = useState([]);
+  const [showModal, setShowModal] = useState(false);
+  const [editingStudent, setEditingStudent] = useState(null);
 
   useEffect(() => {
-    fetchDepartments();
+    fetchStudents();
   }, []);
 
-  async function fetchDepartments() {
-    const { data, error } = await supabase.from("departments").select("*");
+  async function fetchStudents() {
+    const { data, error } = await supabase
+      .from("students")
+      .select(`
+        *,
+        users!user_id(full_name, email),
+        departments!dept_id(name),
+        semesters!enrolled_at(name)
+      `)
+      .order("student_code");
+    
     if (error) {
-      console.error("Error fetching departments:", error);
+      console.error("Error fetching students:", error);
     } else {
-      console.log("Departments loaded:", data);
-      if (data && data.length > 0) {
-        console.log("First department structure:", data[0]);
-      }
-      setDepartments(data || []);
+      setStudents(data || []);
     }
   }
 
-  async function handleAddStudent(e) {
-    e.preventDefault();
-    setLoading(true);
+  function handleSuccess() {
+    setShowModal(false);
+    setEditingStudent(null);
+    fetchStudents();
+  }
 
-    try {
-      // 1. Call Supabase Edge Function
-      const functionUrl =
-        "https://txvsnagzlkgbgbvaxfux.functions.supabase.co/create-student";
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  function handleEdit(student) {
+    setEditingStudent(student);
+    setShowModal(true);
+  }
 
-      if (!anonKey) {
-        alert("Missing VITE_SUPABASE_ANON_KEY environment variable.");
-        setLoading(false);
-        return;
-      }
-
-      const res = await fetch(functionUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${anonKey}`,
-          apikey: anonKey,
-        },
-        body: JSON.stringify({
-          email,
-          password: studentId, // default password = student ID
-        }),
-      });
-
-      if (!res.ok) {
-        console.error(`HTTP Error: ${res.status} ${res.statusText}`);
-        const errorText = await res.text();
-        console.error("Response body:", errorText);
-        try {
-          const errorJson = JSON.parse(errorText);
-          const errorMsg = errorJson.error?.message || errorJson.error?.code || errorText;
-          // Friendly message for common errors
-          let friendlyMsg = errorMsg;
-          if (errorJson.error?.code === "email_exists") {
-            friendlyMsg = "This email is already registered. Please use a different email.";
-          }
-          alert(`Error: ${friendlyMsg}`);
-        } catch {
-          alert(`Edge Function Error: ${res.status} - ${errorText}`);
-        }
-        setLoading(false);
-        return;
-      }
-
-      const result = await res.json();
-
-      console.log("FUNCTION RESPONSE:", result);
-
-      // Handle errors returned by the function
-      if (result.error) {
-        alert("Auth Error: " + result.error.message);
-        setLoading(false);
-        return;
-      }
-
-      // If result.user is missing → something is wrong
-      if (!result.user) {
-        alert("Unexpected Error: Edge Function did not return user data.");
-        console.error("Unexpected Function Response:", result);
-        setLoading(false);
-        return;
-      }
-
-      const userId = result.user.id;
-      console.log("Created Auth User ID:", userId);
-
-      // Validate dept_id is selected and is a valid number
-      console.log("Selected deptId:", deptId, "Type:", typeof deptId);
-      
-      if (!deptId) {
-        alert("Please select a department.");
-        setLoading(false);
-        return;
-      }
-      
-      const deptIdNum = parseInt(deptId);
-      console.log("Parsed deptIdNum:", deptIdNum);
-      
-      if (isNaN(deptIdNum)) {
-        alert("Department ID must be a valid number.");
-        setLoading(false);
-        return;
-      }
-
-      // 2. Insert into "users" table (without id - let DB auto-generate)
-      const { error: userError, data: userData } = await supabase.from("users").insert({
-        email,
-        full_name: fullName,
-        password_hash: "", // Placeholder - passwords managed by Auth
-        role: "student",
-        first_login: true,
-      }).select();
-
-      console.log("User Insert Response:", { error: userError, data: userData });
-
-      if (userError) {
-        console.error("Full User Insert Error Details:", {
-          message: userError.message,
-          code: userError.code,
-          status: userError.status,
-          details: userError.details,
-        });
-        alert("User Insert Error: " + (userError.details || userError.message));
-        setLoading(false);
-        return;
-      }
-
-      const dbUserId = userData && userData[0] ? userData[0].id : null;
-      if (!dbUserId) {
-        alert("Error: User was created but ID not returned.");
-        setLoading(false);
-        return;
-      }
-
-      // 3. Insert into "students" table
-      const { error: studentError } = await supabase.from("students").insert({
-        user_id: dbUserId,
-        student_code: studentId,
-        dept_id: deptIdNum,
-        credits: 0,
-      });
-
-      if (studentError) {
-        alert("Student Insert Error: " + studentError.message);
-        setLoading(false);
-        return;
-      }
-
-      alert(`Student created successfully!
-Email: ${email}
-Password: ${studentId}`);
-
-      // Reset fields
-      setFullName("");
-      setEmail("");
-      setStudentId("");
-      setDeptId("");
-
-    } catch (err) {
-      alert("Unexpected Error: " + err.message);
-      console.error("Full Error Details:", err);
-      console.error("Function URL:", functionUrl);
+  async function handleDelete(userId) {
+    if (!confirm("Are you sure you want to delete this student? This will also delete their user account.")) {
+      return;
     }
 
-    setLoading(false);
+    const { error: studentError } = await supabase
+      .from("students")
+      .delete()
+      .eq("user_id", userId);
+
+    if (studentError) {
+      alert("Error deleting student: " + studentError.message);
+      return;
+    }
+
+    const { error: userError } = await supabase
+      .from("users")
+      .delete()
+      .eq("id", userId);
+
+    if (userError) {
+      alert("Error deleting user: " + userError.message);
+    } else {
+      alert("Student deleted successfully!");
+      fetchStudents();
+    }
   }
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl mb-4">Add Student</h1>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="text-4xl font-bold text-slate-900 mb-2">Students</h1>
+            <p className="text-slate-600">Manage student accounts</p>
+          </div>
+          <button
+            onClick={() => setShowModal(true)}
+            className="bg-brandButton hover:bg-menuHover text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 shadow-lg transition"
+          >
+            <i className='bx bx-plus text-xl'></i>
+            Add Student
+          </button>
+        </div>
 
-      <form onSubmit={handleAddStudent} className="max-w-md bg-white p-4 rounded shadow">
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-100 border-b border-slate-200">
+                <tr>
+                  <th className="px-6 py-4 text-left text-sm font-bold text-slate-900">Student Code</th>
+                  <th className="px-6 py-4 text-left text-sm font-bold text-slate-900">Full Name</th>
+                  <th className="px-6 py-4 text-left text-sm font-bold text-slate-900">Email</th>
+                  <th className="px-6 py-4 text-left text-sm font-bold text-slate-900">Department</th>
+                  <th className="px-6 py-4 text-left text-sm font-bold text-slate-900">Enrolled At</th>
+                  <th className="px-6 py-4 text-left text-sm font-bold text-slate-900">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {students.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" className="px-6 py-8 text-center text-slate-500">
+                      No students found. Click "+ Add Student" to create one.
+                    </td>
+                  </tr>
+                ) : (
+                  students.map((student) => (
+                    <tr key={student.user_id} className="hover:bg-slate-50 transition">
+                      <td className="px-6 py-4 text-sm text-slate-900 font-semibold">{student.student_code}</td>
+                      <td className="px-6 py-4 text-sm text-slate-900">{student.users?.full_name || "N/A"}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{student.users?.email || "N/A"}</td>
+                      <td className="px-6 py-4 text-sm text-slate-900">{student.departments?.name || "N/A"}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{student.semesters?.name || "N/A"}</td>
+                      <td className="px-6 py-4 text-sm space-x-2">
+                        <button
+                          onClick={() => handleEdit(student)}
+                          className="text-blue-600 hover:text-blue-700 font-semibold"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(student.user_id)}
+                          className="text-red-600 hover:text-red-700 font-semibold"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
-        <input
-          className="border p-2 w-full mb-3"
-          placeholder="Full Name"
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          required
-        />
-
-        <input
-          className="border p-2 w-full mb-3"
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-
-        <input
-          className="border p-2 w-full mb-3"
-          placeholder="Student ID"
-          value={studentId}
-          onChange={(e) => setStudentId(e.target.value)}
-          required
-        />
-
-        <select
-          className="border p-2 w-full mb-3"
-          value={deptId}
-          onChange={(e) => setDeptId(e.target.value)}
-          required
-        >
-          <option value="">Select Department</option>
-          {departments.map((dept) => (
-            <option key={dept.dept_id} value={dept.dept_id}>
-              {dept.name}
-            </option>
-          ))}
-        </select>
-
-        <button
-          disabled={loading}
-          className="bg-blue-600 text-white px-4 py-2 rounded w-full"
-        >
-          {loading ? "Creating..." : "Create Student"}
-        </button>
-
-      </form>
+        {showModal && (
+          <AddStudentModal
+            onClose={() => {
+              setShowModal(false);
+              setEditingStudent(null);
+            }}
+            onSuccess={handleSuccess}
+            editData={editingStudent}
+          />
+        )}
+      </div>
     </div>
   );
 }

@@ -106,6 +106,7 @@ export default function CreateCourseClass() {
   const [facultyId, setFacultyId] = useState("");
   const [seats, setSeats] = useState(30);
   const [courseCredits, setCourseCredits] = useState(0);
+  const [nextSectionNumber, setNextSectionNumber] = useState(1);
 
   const [filteredCourses, setFilteredCourses] = useState([]);
   const [availableTimeSlots, setAvailableTimeSlots] = useState([]);
@@ -139,6 +140,34 @@ export default function CreateCourseClass() {
       console.log('Faculty:', facultyData);
       setFacultyList(facultyData || []);
     }
+  }
+
+  // Function to get the next section number for a course
+  async function getNextSectionNumber(courseId) {
+    const { data, error } = await supabase
+      .from("course_classes")
+      .select("section")
+      .eq("course_id", courseId);
+
+    if (error) {
+      console.error("Error fetching sections:", error);
+      return 1;
+    }
+
+    if (!data || data.length === 0) {
+      return 1;
+    }
+
+    // Extract section numbers (they should already be integers)
+    const sectionNumbers = data
+      .map((item) => parseInt(item.section))
+      .filter((num) => !isNaN(num) && num > 0);
+
+    console.log("Existing section numbers:", sectionNumbers);
+
+    // Find the maximum number and add 1
+    const maxNumber = sectionNumbers.length > 0 ? Math.max(...sectionNumbers) : 0;
+    return maxNumber + 1;
   }
 
   useEffect(() => {
@@ -197,15 +226,11 @@ export default function CreateCourseClass() {
     e.preventDefault();
     setLoading(true);
 
-    // Generate section name (e.g., "CSE-302-A")
-    const selectedCourseObj = courses.find((c) => c.id === selectedCourse);
-    const sectionLetter = String.fromCharCode(65 + Math.floor(Math.random() * 26)); // Random A-Z
-    const section = `${selectedCourseObj.course_code}-${sectionLetter}`;
-
+    // Use only the section number as integer
     const { error } = await supabase.from("course_classes").insert({
       course_id: selectedCourse,
       faculty_id: facultyId,
-      section: section,
+      section: nextSectionNumber,
       day_slot: daySlot,
       room_no: room,
       class_type: classType,
@@ -229,6 +254,7 @@ export default function CreateCourseClass() {
     setFacultyId("");
     setSeats(30);
     setSearchCourse("");
+    setNextSectionNumber(1);
     setLoading(false);
   }
 
@@ -284,11 +310,14 @@ export default function CreateCourseClass() {
                         <button
                           key={c.id}
                           type="button"
-                          onClick={() => {
+                          onClick={async () => {
                             setSelectedCourse(c.id);
                             setCourseCredits(c.credit || 0);
                             setSearchCourse(`${c.course_code} — ${c.name}`);
                             setShowCourseDropdown(false);
+                            // Get the next section number for this course
+                            const nextNum = await getNextSectionNumber(c.id);
+                            setNextSectionNumber(nextNum);
                           }}
                           className="w-full px-4 py-3 text-left hover:bg-blue-50 transition border-b border-slate-100 last:border-b-0"
                         >
@@ -321,7 +350,7 @@ export default function CreateCourseClass() {
                     onClick={() => setDaySlot(slot)}
                     className={`py-2 px-3 rounded-lg font-semibold transition ${
                       daySlot === slot
-                        ? "bg-blue-600 text-white"
+                        ? "bg-brandButton text-white"
                         : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                     }`}
                   >
@@ -344,7 +373,7 @@ export default function CreateCourseClass() {
                     onClick={() => setClassType(type)}
                     className={`py-3 px-4 rounded-xl font-semibold transition ${
                       classType === type
-                        ? "bg-blue-600 text-white"
+                        ? "bg-brandButton text-white"
                         : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                     }`}
                   >
@@ -432,7 +461,7 @@ export default function CreateCourseClass() {
                   >
                     −
                   </button>
-                  <span className="text-3xl font-bold text-blue-600 w-16 text-center">{seats}</span>
+                  <span className="text-3xl font-bold text-brandButton w-16 text-center">{seats}</span>
                   <button
                     type="button"
                     onClick={() => setSeats(seats + 1)}
@@ -447,7 +476,7 @@ export default function CreateCourseClass() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 rounded-xl font-semibold shadow-lg hover:shadow-xl disabled:opacity-50 transition"
+                className="w-full bg-brandButton hover:bg-menuHover text-white py-3 rounded-xl font-semibold shadow-lg hover:shadow-xl disabled:opacity-50 transition"
               >
                 {loading ? "Creating..." : "Create Class"}
               </button>
