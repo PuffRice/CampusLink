@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 import UserProfile from "../components/UserProfile";
 
@@ -39,6 +39,64 @@ const sidebarItems = [
 
 export default function StudentDashboard() {
   const [activeMenu, setActiveMenu] = useState("Dashboard");
+  const [enrolledSemester, setEnrolledSemester] = useState("");
+
+  useEffect(() => {
+    async function loadSemesterName() {
+      // Mirror UserProfile fetch: map auth email -> users row
+      const { data: authData } = await supabase.auth.getUser();
+      const authUser = authData?.user;
+      if (!authUser?.email) {
+        setEnrolledSemester("Not enrolled");
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("users")
+        .select(
+          `id`
+        )
+        .eq("email", authUser.email)
+        .maybeSingle();
+
+      if (error || !data?.id) {
+        console.error("Error fetching user data:", error);
+        setEnrolledSemester("Not enrolled");
+        return;
+      }
+
+      const userId = data.id;
+
+      // Now get enrolled_at via students
+      const { data: studentData, error: studentError } = await supabase
+        .from("students")
+        .select("enrolled_at")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (studentError || !studentData?.enrolled_at) {
+        console.error("Failed to fetch enrolled semester id", studentError);
+        setEnrolledSemester("Not enrolled");
+        return;
+      }
+
+      const { data: semesterData, error: semesterError } = await supabase
+        .from("semesters")
+        .select("name")
+        .eq("id", studentData.enrolled_at)
+        .maybeSingle();
+
+      if (semesterError || !semesterData?.name) {
+        console.error("Failed to fetch semester name", semesterError);
+        setEnrolledSemester("Not enrolled");
+        return;
+      }
+
+      setEnrolledSemester(semesterData.name);
+    }
+
+    loadSemesterName();
+  }, []);
 
   async function logout() {
     await supabase.auth.signOut();
@@ -105,7 +163,7 @@ export default function StudentDashboard() {
               </div>
               <div className="bg-white/20 backdrop-blur-sm rounded-2xl p-6 text-center">
                 <p className="text-sm text-blue-200 mb-1">Enrolled</p>
-                <p className="text-2xl font-bold">Summer 2023</p>
+                <p className="text-2xl font-bold">{enrolledSemester || "Loading..."}</p>
                 <p className="text-xs text-blue-200 mt-3">CGPA</p>
                 <p className="text-4xl font-bold mt-1">3.86</p>
               </div>
