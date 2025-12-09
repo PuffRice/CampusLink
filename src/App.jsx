@@ -10,6 +10,7 @@ import AddFaculty from "./pages/AddFaculty";
 import AddStudent from "./pages/AddStudent";
 import CreateCourseClass from "./pages/CreateCourseClass";
 import CourseClasses from "./pages/CourseClasses";
+import Advising from "./pages/Advising";
 
 
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -54,6 +55,15 @@ function App() {
           element={
             <ProtectedRoute>
               <StudentDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/student/advising"
+          element={
+            <ProtectedRoute>
+              <Advising />
             </ProtectedRoute>
           }
         />

@@ -57,7 +57,7 @@ export default function AddFacultyModal({ onClose, onSuccess, editData }) {
         return;
       }
       
-     deptIdNum = parseInt(deptId);
+      const deptIdNum = parseInt(deptId);
       if (isNaN(deptIdNum)) {
         alert("Department ID must be a valid number.");
         setLoading(false);
@@ -157,25 +157,6 @@ export default function AddFacultyModal({ onClose, onSuccess, editData }) {
       }
 
       const authUserId = result.user.id;
-
-      if (!deptId) {
-        alert("Please select a department.");
-        setLoading(false);
-        return;
-      }
-
-      if (!designation) {
-        alert("Please select a designation.");
-        setLoading(false);
-        return;
-      }
-      
-      const deptIdNum = parseInt(deptId);
-      if (isNaN(deptIdNum)) {
-        alert("Department ID must be a valid number.");
-        setLoading(false);
-        return;
-      }
 
       const { error: userError, data: userData } = await supabase.from("users").insert({
         email,

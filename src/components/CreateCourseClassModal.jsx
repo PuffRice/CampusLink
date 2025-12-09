@@ -205,6 +205,7 @@ export default function CreateCourseClassModal({ onClose, onSuccess }) {
       class_type: classType,
       time_slot: timeSlot,
       seats: seats,
+      filled_seats: 0,
     });
 
     if (error) {
