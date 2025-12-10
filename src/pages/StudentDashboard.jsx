@@ -3,19 +3,13 @@ import { supabase } from "../supabase";
 import UserProfile from "../components/UserProfile";
 import Advising from "./Advising";
 import EnrolledClassesLMS from "./EnrolledClassesLMS";
+import ClassSchedule from "./ClassSchedule";
 
 const stats = [
   { label: "Current GPA", value: "3.82", detail: "Excellent standing", change: "+0.12 this term", badgeBg: "bg-blue-50", badgeText: "text-blue-700" },
   { label: "Credits Earned", value: "82 / 120", detail: "6 courses in progress", change: "18 credits remaining", badgeBg: "bg-sky-50", badgeText: "text-sky-700" },
   { label: "Attendance", value: "94%", detail: "All classes on track", change: "+2.1% vs last month", badgeBg: "bg-emerald-50", badgeText: "text-emerald-700" },
   { label: "Fees", value: "Cleared", detail: "Next due Jan 15", change: "Receipt #34821", badgeBg: "bg-amber-50", badgeText: "text-amber-700" },
-];
-
-const schedule = [
-  { time: "08:00 - 09:30", course: "Data Structures", room: "Hall B-204", type: "Lecture", instructor: "Dr. Lin" },
-  { time: "10:00 - 11:30", course: "Operating Systems", room: "Lab C-310", type: "Lab", instructor: "Prof. Malik" },
-  { time: "12:30 - 14:00", course: "Linear Algebra", room: "Hall A-105", type: "Seminar", instructor: "Dr. Ortega" },
-  { time: "15:00 - 16:00", course: "Capstone Sync", room: "Innovation Hub", type: "Workshop", instructor: "Capstone Team" },
 ];
 
 const announcements = [
@@ -37,6 +31,8 @@ const sidebarItems = [
 export default function StudentDashboard() {
   const [activeMenu, setActiveMenu] = useState("Dashboard");
   const [enrolledSemester, setEnrolledSemester] = useState("");
+  const [todaySchedule, setTodaySchedule] = useState([]);
+  const [scheduleLoading, setScheduleLoading] = useState(true);
 
   useEffect(() => {
     async function loadSemesterName() {
@@ -93,7 +89,134 @@ export default function StudentDashboard() {
     }
 
     loadSemesterName();
+    loadTodaySchedule();
   }, []);
+
+  const baseDayNames = { S: "Sun", M: "Mon", T: "Tue", W: "Wed", R: "Thu", F: "Fri" };
+  const comboDayNames = {
+    ST: ["Sun", "Tue"],
+    SR: ["Sun", "Thu"],
+    SM: ["Sun", "Mon"],
+    SF: ["Sun", "Fri"],
+    MT: ["Mon", "Tue"],
+    MW: ["Mon", "Wed"],
+    MR: ["Mon", "Thu"],
+    MF: ["Mon", "Fri"],
+    TW: ["Tue", "Wed"],
+    TR: ["Tue", "Thu"],
+    TF: ["Tue", "Fri"],
+    WR: ["Wed", "Thu"],
+    WF: ["Wed", "Fri"],
+    RF: ["Thu", "Fri"],
+  };
+
+  function getDaysForSlot(daySlot) {
+    if (!daySlot) return [];
+    const key = daySlot.replace(/\s+/g, "").toUpperCase();
+    if (comboDayNames[key]) return comboDayNames[key];
+    const days = [];
+    for (const ch of key.split("")) {
+      const name = baseDayNames[ch];
+      if (name && !days.includes(name)) days.push(name);
+    }
+    return days;
+  }
+
+  function isMeetingToday(daySlot) {
+    const todayIdx = new Date().getDay(); // 0=Sun
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const todayName = dayNames[todayIdx];
+    return getDaysForSlot(daySlot).includes(todayName);
+  }
+
+  function toMinutes(timeStr) {
+    if (!timeStr) return 0;
+    const [start] = timeStr.split("-");
+    const trimmed = start.trim();
+    const ampmMatch = trimmed.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    if (ampmMatch) {
+      let h = parseInt(ampmMatch[1], 10);
+      const m = parseInt(ampmMatch[2], 10);
+      const mer = ampmMatch[3].toUpperCase();
+      if (mer === "PM" && h !== 12) h += 12;
+      if (mer === "AM" && h === 12) h = 0;
+      return h * 60 + m;
+    }
+    const [h, m] = trimmed.split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  }
+
+  async function loadTodaySchedule() {
+    setScheduleLoading(true);
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      const authUser = authData?.user;
+      if (!authUser?.email) {
+        setTodaySchedule([]);
+        setScheduleLoading(false);
+        return;
+      }
+
+      const { data: userRow, error: userErr } = await supabase
+        .from("users")
+        .select("id")
+        .eq("email", authUser.email)
+        .maybeSingle();
+
+      if (userErr || !userRow?.id) {
+        console.error("loadTodaySchedule user fetch error", userErr);
+        setTodaySchedule([]);
+        setScheduleLoading(false);
+        return;
+      }
+
+      const { data: enrollments, error: enrollErr } = await supabase
+        .from("enrollments")
+        .select(
+          `id, class_id,
+           course_classes:class_id (
+             id,
+             day_slot,
+             time_slot,
+             room,
+             section,
+             courses:course_id (name, course_code),
+             faculty_user:faculty_id (full_name)
+           )`
+        )
+        .eq("student_id", userRow.id);
+
+      if (enrollErr || !enrollments) {
+        console.error("loadTodaySchedule enrollments error", enrollErr);
+        setTodaySchedule([]);
+        setScheduleLoading(false);
+        return;
+      }
+
+      const todays = enrollments
+        .map((en) => en.course_classes)
+        .filter(Boolean)
+        .filter((cls) => isMeetingToday(cls.day_slot))
+        .map((cls) => ({
+          time: cls.time_slot || "TBA",
+          course:
+            cls.courses?.course_code && cls.courses?.name
+              ? `${cls.courses.course_code} — ${cls.courses.name}`
+              : cls.courses?.name || "Course",
+          room: cls.room || "Room TBA",
+          type: `Section ${cls.section || ""}`.trim(),
+          instructor: cls.faculty_user?.full_name || "Faculty",
+          sortKey: toMinutes(cls.time_slot),
+        }))
+        .sort((a, b) => a.sortKey - b.sortKey);
+
+      setTodaySchedule(todays);
+    } catch (err) {
+      console.error("loadTodaySchedule exception", err);
+      setTodaySchedule([]);
+    }
+    setScheduleLoading(false);
+  }
 
   async function logout() {
     await supabase.auth.signOut();
@@ -149,6 +272,8 @@ export default function StudentDashboard() {
             <Advising />
           ) : activeMenu === "Enrolled Classes" ? (
             <EnrolledClassesLMS />
+          ) : activeMenu === "Class Schedule" ? (
+            <ClassSchedule />
           ) : (
             <div className="p-8">
               {/* Hero Section */}
@@ -209,24 +334,34 @@ export default function StudentDashboard() {
                       <button className="text-xs font-semibold text-brandButton hover:text-menuHover">View week</button>
                     </div>
                     <div className="space-y-3">
-                      {schedule.map((block) => (
-                        <div
-                          key={block.time + block.course}
-                          className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm hover:shadow-md transition"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex-1">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">{block.time}</p>
-                              <p className="text-base font-bold text-slate-900 mb-1">{block.course}</p>
-                              <p className="text-sm text-slate-600">{block.instructor}</p>
-                            </div>
-                            <div className="flex flex-col items-end gap-2">
-                              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{block.room}</span>
-                              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-brandButton">{block.type}</span>
-                            </div>
+                        {scheduleLoading ? (
+                          <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 text-sm text-slate-600">
+                            Loading today's classes...
                           </div>
-                        </div>
-                      ))}
+                        ) : todaySchedule.length === 0 ? (
+                          <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 text-sm text-slate-600">
+                            No classes scheduled for today.
+                          </div>
+                        ) : (
+                          todaySchedule.map((block) => (
+                            <div
+                              key={block.time + block.course}
+                              className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm hover:shadow-md transition"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex-1">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">{block.time}</p>
+                                  <p className="text-base font-bold text-slate-900 mb-1">{block.course}</p>
+                                  <p className="text-sm text-slate-600">{block.instructor}</p>
+                                </div>
+                                <div className="flex flex-col items-end gap-2">
+                                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{block.room}</span>
+                                  <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-brandButton">{block.type || "Class"}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        )}
                     </div>
                   </div>
 

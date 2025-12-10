@@ -7,7 +7,7 @@ export default function EnrolledClassesLMS() {
   const [assignments, setAssignments] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [attendance, setAttendance] = useState([]);
-  const [stream, setStream] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
   const [classDetails, setClassDetails] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -31,36 +31,25 @@ export default function EnrolledClassesLMS() {
         .eq("email", user.email)
         .single();
       if (userError || !userData) {
+        console.error("User fetch error:", userError);
         setLoading(false);
         return;
       }
+      console.log("User found:", userData);
 
-      // Get student record
-      const { data: studentData, error: studentError } = await supabase
-        .from("students")
-        .select("user_id")
-        .eq("user_id", userData.id)
-        .maybeSingle();
-      if (studentError || !studentData) {
-        setLoading(false);
-        return;
-      }
-
-      // Fetch enrollments for this student
+      // Fetch enrollments for this student (student_id in enrollments matches users.id)
       const { data: enrollments, error: enrollError } = await supabase
         .from("enrollments")
         .select(`
           *,
           course_classes:class_id (
             *,
-            courses:course_id (*),
-            faculty:faculty_id (
-              *,
-              users:user_id (*)
-            )
+            courses:course_id (*)
           )
         `)
-        .eq("student_id", studentData.user_id);
+        .eq("student_id", userData.id);
+      console.log("Enrollments fetch error:", enrollError);
+      console.log("Enrollments data:", enrollments);
       if (enrollError || !enrollments) {
         setLoading(false);
         return;
@@ -70,6 +59,7 @@ export default function EnrolledClassesLMS() {
       const courseClasses = enrollments
         .map(e => e.course_classes)
         .filter(Boolean);
+      console.log("Course classes:", courseClasses);
       setCourses(courseClasses);
       setActiveCourse(courseClasses[0] || null);
       setLoading(false);
@@ -81,10 +71,24 @@ export default function EnrolledClassesLMS() {
   useEffect(() => {
     if (activeCourse) {
       fetchCourseData(activeCourse);
+      fetchAnnouncements(activeCourse.id);
+    } else {
+      setAnnouncements([]);
     }
   }, [activeCourse]);
 
   async function fetchCourseData(course) {
+    // Fetch faculty name if faculty_id exists
+    let facultyName = "TBA";
+    if (course.faculty_id) {
+      const { data: facultyData } = await supabase
+        .from("faculty")
+        .select("users:user_id(full_name)")
+        .eq("id", course.faculty_id)
+        .single();
+      facultyName = facultyData?.users?.full_name || "TBA";
+    }
+
     // Set class details from the active course
     if (course) {
       setClassDetails({
@@ -92,10 +96,10 @@ export default function EnrolledClassesLMS() {
         courseCode: course.courses?.course_code,
         section: course.section,
         credits: course.courses?.credit,
-        room: course.room || "TBA",
+        room: course.room_no || "TBA",
         timeSlot: course.time_slot,
         daySlot: course.day_slot,
-        faculty: course.faculty?.users?.full_name || "TBA",
+        faculty: facultyName,
         seats: course.seats,
         filledSeats: course.filled_seats,
       });
@@ -103,8 +107,40 @@ export default function EnrolledClassesLMS() {
     // TODO: Fetch assignments, materials, attendance, and stream for the selected course
   }
 
+  async function fetchAnnouncements(classId) {
+    try {
+      const { data, error } = await supabase
+        .from("announcements")
+        .select("*, users:user_id(full_name)")
+        .eq("class_id", classId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Announcements fetch error:", error);
+        setAnnouncements([]);
+        return;
+      }
+
+      setAnnouncements(data || []);
+    } catch (err) {
+      console.error("Announcements fetch exception:", err);
+      setAnnouncements([]);
+    }
+  }
+
   if (loading) {
     return <div className="p-6">Loading...</div>;
+  }
+
+  if (!courses.length) {
+    return (
+      <div className="p-8">
+        <h1 className="text-2xl font-bold mb-4">Enrolled Classes</h1>
+        <div className="bg-gray-50 border rounded-lg p-6 text-gray-600">
+          No enrolled courses found.
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -127,8 +163,35 @@ export default function EnrolledClassesLMS() {
           {/* Stream (Announcements) */}
           <section className="mb-8">
             <h2 className="text-xl font-bold mb-4">Stream</h2>
-            {/* TODO: Render stream posts */}
-            <div className="bg-gray-50 rounded-lg p-4">No announcements yet.</div>
+            <div className="space-y-4">
+              {announcements.length === 0 ? (
+                <div className="bg-gray-50 rounded-lg p-4 text-gray-600">No announcements yet.</div>
+              ) : (
+                announcements.map((item) => (
+                  <div
+                    key={item.id}
+                    className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="flex-shrink-0 bg-blue-100 rounded-full p-2">
+                        <i className="bx bx-user text-blue-600 text-xl"></i>
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="font-semibold text-gray-900">
+                            {item.users?.full_name || "Faculty"}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {new Date(item.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                        <p className="text-gray-700 whitespace-pre-wrap">{item.content}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </section>
           {/* Assignments */}
           <section className="mb-8">
@@ -192,7 +255,7 @@ export default function EnrolledClassesLMS() {
                 <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
                   <div 
                     className="h-2 rounded-full bg-blue-500"
-                    style={{ width: `${(classDetails.filledSeats / classDetails.seats) * 100}%` }}
+                    style={{ width: `${classDetails.seats ? (classDetails.filledSeats / classDetails.seats) * 100 : 0}%` }}
                   ></div>
                 </div>
               </div>
