@@ -228,8 +228,10 @@ export default function FacultyAssignedCourses({ courses }) {
 
   return (
     <div className="flex-1 flex flex-col bg-gray-50">
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col relative">
+      {/* Main Content with Right Sidebar */}
+      <div className="flex-1 flex gap-0 relative">
+        {/* Left: Content Area */}
+        <div className="flex-1 flex flex-col relative">
           {/* Loading Overlay */}
           {courseLoading && (
             <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex items-center justify-center">
@@ -451,6 +453,7 @@ export default function FacultyAssignedCourses({ courses }) {
 
         {/* Right Sidebar - Course Details */}
         <aside className="w-80 bg-white border-l border-gray-200 p-6 flex-shrink-0 overflow-y-auto">
+          <div className="space-y-5">
             {/* Course Details Card */}
             <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
               <h2 className="text-base font-bold text-gray-800 mb-4">Course Details</h2>
@@ -531,6 +534,10 @@ export default function FacultyAssignedCourses({ courses }) {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
