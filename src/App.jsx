@@ -11,6 +11,7 @@ import AddStudent from "./pages/AddStudent";
 import CreateCourseClass from "./pages/CreateCourseClass";
 import CourseClasses from "./pages/CourseClasses";
 import Advising from "./pages/Advising";
+import SystemConfig from "./pages/SystemConfig";
 
 
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -120,6 +121,15 @@ function App() {
           element={
           <ProtectedRoute>
               <AddStudent />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/staff/config"
+          element={
+            <ProtectedRoute>
+              <SystemConfig />
             </ProtectedRoute>
           }
         />

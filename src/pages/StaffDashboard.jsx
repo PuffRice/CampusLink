@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import AddStudent from "./AddStudent";
 import AddFaculty from "./AddFaculty";
 import CourseClasses from "./CourseClasses";
+import SystemConfig from "./SystemConfig";
 import UserProfile from "../components/UserProfile";
 
 export default function StaffDashboard() {
@@ -148,6 +149,8 @@ export default function StaffDashboard() {
         return <AddFaculty />;
       case "classes":
         return <CourseClasses />;
+      case "config":
+        return <SystemConfig />;
       case "dashboard":
       default:
         return (
@@ -360,6 +363,18 @@ export default function StaffDashboard() {
           >
             <i className="bx bxs-book-content text-lg mr-2 align-middle" aria-hidden="true"></i>
             Course Classes
+          </button>
+
+          <button
+            onClick={() => setActiveOption("config")}
+            className={`px-4 py-3 rounded transition text-left ${
+              activeOption === "config"
+                ? "bg-brandButton"
+                : "bg-menuBg hover:bg-menuHover"
+            }`}
+          >
+            <i className="bx bxs-cog text-lg mr-2 align-middle" aria-hidden="true"></i>
+            System Config
           </button>
         </nav>
       </div>

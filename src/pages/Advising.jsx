@@ -8,6 +8,7 @@ export default function Advising() {
   const [enrolledCourses, setEnrolledCourses] = useState([]);
   const [totalCredits, setTotalCredits] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -141,11 +142,18 @@ export default function Advising() {
     const enrolledClassIds = enrollments?.map(e => e.class_id) || [];
     const filtered = data?.filter(course => !enrolledClassIds.includes(course.id)) || [];
 
-    console.log("Available courses after filtering:", filtered);
-    if (filtered && filtered.length > 0) {
-      console.log("Sample course data:", filtered[0]);
+    // Sort by course code alphabetically
+    const sorted = filtered.sort((a, b) => {
+      const codeA = a.courses?.course_code || "";
+      const codeB = b.courses?.course_code || "";
+      return codeA.localeCompare(codeB);
+    });
+
+    console.log("Available courses after filtering and sorting:", sorted);
+    if (sorted && sorted.length > 0) {
+      console.log("Sample course data:", sorted[0]);
     }
-    setAvailableCourses(filtered);
+    setAvailableCourses(sorted);
   }
 
   function parseTime(timeStr) {
@@ -162,59 +170,148 @@ export default function Advising() {
     return hour24 * 60 + minutes; // Return minutes from midnight
   }
 
-  function checkTimeClash(newCourse) {
-    if (!newCourse.time_slot) return false;
+  function getDaysFromSlot(daySlot) {
+    if (!daySlot) return [];
+    const dayMap = { S: 'Sun', M: 'Mon', T: 'Tue', W: 'Wed', R: 'Thu' };
+    return daySlot.split('').map(ch => dayMap[ch]).filter(Boolean);
+  }
+
+  function timesOverlap(time1, time2) {
+    if (!time1 || !time2) return false;
     
-    const newDays = newCourse.day_slot?.split("") || [];
+    const [start1Str, end1Str] = time1.split(' - ');
+    const [start2Str, end2Str] = time2.split(' - ');
+    
+    const start1 = parseTime(start1Str);
+    const end1 = parseTime(end1Str);
+    const start2 = parseTime(start2Str);
+    const end2 = parseTime(end2Str);
+    
+    if (!start1 || !end1 || !start2 || !end2) return false;
+    
+    // Check if time ranges overlap
+    return start1 < end2 && start2 < end1;
+  }
+
+  function checkTimeClash(newCourse) {
+    if (!newCourse.time_slot || !newCourse.day_slot) return null;
+    
+    const newDays = getDaysFromSlot(newCourse.day_slot);
 
     for (const enrollment of enrolledCourses) {
       const course = enrollment.course_classes;
-      if (!course.time_slot) continue;
+      if (!course.time_slot || !course.day_slot) continue;
 
-      // Check if both day_slot and time_slot match
-      if (course.day_slot === newCourse.day_slot && course.time_slot === newCourse.time_slot) {
-        return true; // Clash detected
+      const enrolledDays = getDaysFromSlot(course.day_slot);
+      
+      // Check if any days overlap
+      const hasCommonDay = newDays.some(day => enrolledDays.includes(day));
+      
+      if (hasCommonDay) {
+        // Check if times overlap
+        if (timesOverlap(newCourse.time_slot, course.time_slot)) {
+          return {
+            hasClash: true,
+            clashingCourse: course.courses?.course_code,
+            clashingCourseName: course.courses?.name
+          }; // Clash detected
+        }
       }
     }
-    return false;
+    return { hasClash: false };
   }
 
   async function handleEnroll(courseClass) {
     if (!student) return;
 
-    // Check credit limit
-    const courseCredits = courseClass.courses?.credit || 0;
-    if (totalCredits + courseCredits > 15) {
-      alert(`Cannot enroll: Credit limit exceeded. You have ${totalCredits} credits and this course is ${courseCredits} credits. Maximum is 15.`);
-      return;
-    }
-
-    // Check time clash
-    if (checkTimeClash(courseClass)) {
-      alert("Cannot enroll: Time clash with already enrolled courses.");
-      return;
-    }
-
-    // Check seat availability
-    const totalSeats = courseClass.seats || 0;
-    const filledSeats = courseClass.filled_seats || 0;
-    if (filledSeats >= totalSeats) {
-      alert("Cannot enroll: No seats available in this course.");
-      return;
-    }
-
     setLoading(true);
 
     try {
-      // Create enrollment
-      const { error: enrollError } = await supabase
+      // Check if this course has a corresponding lab
+      const courseName = courseClass.courses?.name || "";
+      let labClassToEnroll = null;
+      let labCourseCredits = 0;
+
+      // If course doesn't end with "Lab", check if a corresponding lab exists
+      if (!courseName.toLowerCase().includes("lab")) {
+        const { data: labCourse } = await supabase
+          .from("courses")
+          .select("id, name, credit")
+          .ilike("name", `${courseName}%Lab`)
+          .single();
+
+        // If lab course exists, find the lab class with the same section number
+        if (labCourse) {
+          labCourseCredits = labCourse.credit || 0;
+          const { data: labClasses } = await supabase
+            .from("course_classes")
+            .select("*")
+            .eq("course_id", labCourse.id)
+            .eq("section", courseClass.section);
+
+          if (labClasses && labClasses.length > 0) {
+            labClassToEnroll = labClasses[0];
+          }
+        }
+      }
+
+      // Check credit limit including both main course and lab (if any)
+      const courseCredits = courseClass.courses?.credit || 0;
+      const totalNewCredits = courseCredits + labCourseCredits;
+      
+      if (totalCredits + totalNewCredits > 15) {
+        setLoading(false);
+        const labInfo = labClassToEnroll ? ` and ${labCourseCredits} credits for the lab` : "";
+        alert(`Cannot enroll: Credit limit exceeded. You have ${totalCredits} credits. This course is ${courseCredits} credits${labInfo}, totaling ${totalNewCredits} credits. Maximum is 15.`);
+        return;
+      }
+
+      // Check time clash
+      const clashInfo = checkTimeClash(courseClass);
+      if (clashInfo.hasClash) {
+        setLoading(false);
+        alert(`Cannot enroll: Time clash with ${clashInfo.clashingCourse} - ${clashInfo.clashingCourseName}.`);
+        return;
+      }
+
+      // Check seat availability
+      const totalSeats = courseClass.seats || 0;
+      const filledSeats = courseClass.filled_seats || 0;
+      if (filledSeats >= totalSeats) {
+        setLoading(false);
+        alert("Cannot enroll: No seats available in this course.");
+        return;
+      }
+
+      // Check if lab class has available seats
+      if (labClassToEnroll) {
+        const labTotalSeats = labClassToEnroll.seats || 0;
+        const labFilledSeats = labClassToEnroll.filled_seats || 0;
+        if (labFilledSeats >= labTotalSeats) {
+          setLoading(false);
+          alert(`Cannot enroll: No seats available in the corresponding lab section.`);
+          return;
+        }
+
+        // Check time clash for lab
+        const labClashInfo = checkTimeClash(labClassToEnroll);
+        if (labClashInfo.hasClash) {
+          setLoading(false);
+          alert(`Cannot enroll: Time clash between course and corresponding lab (clashes with ${labClashInfo.clashingCourse}).`);
+          return;
+        }
+      }
+
+      // Create enrollment for main course
+      const { data: enrollmentData, error: enrollError } = await supabase
         .from("enrollments")
         .insert({
           class_id: courseClass.id,
           student_id: student.user_id,
           score: 0,
           grade: 0.0
-        });
+        })
+        .select();
 
       if (enrollError) {
         alert("Enrollment Error: " + enrollError.message);
@@ -222,7 +319,21 @@ export default function Advising() {
         return;
       }
 
-      // Update filled seats
+      // Create attendance record for main course
+      const mainEnrollmentId = enrollmentData[0]?.id;
+      if (mainEnrollmentId) {
+        const { error: attendanceError } = await supabase
+          .from("attendance")
+          .insert({
+            enrollment_id: mainEnrollmentId
+          });
+
+        if (attendanceError) {
+          console.error("Error creating attendance record:", attendanceError);
+        }
+      }
+
+      // Update filled seats for main course
       const currentFilledSeats = courseClass.filled_seats || 0;
       const { error: updateError } = await supabase
         .from("course_classes")
@@ -230,10 +341,54 @@ export default function Advising() {
         .eq("id", courseClass.id);
 
       if (updateError) {
-        console.error("Error updating seats:", updateError);
+        console.error("Error updating main course seats:", updateError);
       }
 
-      alert(`Successfully enrolled in ${courseClass.courses?.name || courseClass.section}!`);
+      // If there's a lab class, enroll in that too
+      if (labClassToEnroll) {
+        const { data: labEnrollmentData, error: labEnrollError } = await supabase
+          .from("enrollments")
+          .insert({
+            class_id: labClassToEnroll.id,
+            student_id: student.user_id,
+            score: 0,
+            grade: 0.0
+          })
+          .select();
+
+        if (labEnrollError) {
+          console.error("Error enrolling in lab:", labEnrollError);
+        }
+
+        // Create attendance record for lab
+        const labEnrollmentId = labEnrollmentData?.[0]?.id;
+        if (labEnrollmentId) {
+          const { error: labAttendanceError } = await supabase
+            .from("attendance")
+            .insert({
+              enrollment_id: labEnrollmentId
+            });
+
+          if (labAttendanceError) {
+            console.error("Error creating lab attendance record:", labAttendanceError);
+          }
+        }
+
+        // Update filled seats for lab
+        const labCurrentFilledSeats = labClassToEnroll.filled_seats || 0;
+        const { error: labUpdateError } = await supabase
+          .from("course_classes")
+          .update({ filled_seats: labCurrentFilledSeats + 1 })
+          .eq("id", labClassToEnroll.id);
+
+        if (labUpdateError) {
+          console.error("Error updating lab seats:", labUpdateError);
+        }
+
+        alert(`Successfully enrolled in ${courseClass.courses?.name} and ${courseClass.section} section!`);
+      } else {
+        alert(`Successfully enrolled in ${courseClass.courses?.name || courseClass.section}!`);
+      }
       
       // Refresh data
       await fetchStudentData();
@@ -250,6 +405,9 @@ export default function Advising() {
     setLoading(true);
 
     try {
+      const courseClass = enrollment.course_classes;
+      const course = courseClass?.courses;
+
       // Delete enrollment
       const { error: dropError } = await supabase
         .from("enrollments")
@@ -263,7 +421,6 @@ export default function Advising() {
       }
 
       // Update filled seats
-      const courseClass = enrollment.course_classes;
       const currentFilledSeats = courseClass.filled_seats || 0;
       const { error: updateError } = await supabase
         .from("course_classes")
@@ -274,7 +431,61 @@ export default function Advising() {
         console.error("Error updating seats:", updateError);
       }
 
-      alert("Course dropped successfully!");
+      // Check if this course has a corresponding lab and drop that too
+      if (!course?.name.toLowerCase().includes("lab")) {
+        const { data: labCourse } = await supabase
+          .from("courses")
+          .select("id")
+          .ilike("name", `${course?.name}%Lab`)
+          .single();
+
+        if (labCourse) {
+          // Find the lab class enrollment with the same section
+          const { data: labEnrollments } = await supabase
+            .from("enrollments")
+            .select(`
+              id,
+              course_classes:class_id (
+                id,
+                section,
+                course_id,
+                filled_seats
+              )
+            `)
+            .eq("student_id", student.user_id);
+
+          // Find the matching lab enrollment
+          const labEnrollment = labEnrollments?.find(
+            (e) => e.course_classes?.course_id === labCourse.id && 
+                   e.course_classes?.section === courseClass.section
+          );
+
+          if (labEnrollment) {
+            // Delete lab enrollment
+            const { error: labDropError } = await supabase
+              .from("enrollments")
+              .delete()
+              .eq("id", labEnrollment.id);
+
+            if (labDropError) {
+              console.error("Error dropping lab enrollment:", labDropError);
+            } else {
+              // Update lab filled seats
+              const labFilledSeats = labEnrollment.course_classes?.filled_seats || 0;
+              const { error: labUpdateError } = await supabase
+                .from("course_classes")
+                .update({ filled_seats: Math.max(0, labFilledSeats - 1) })
+                .eq("id", labEnrollment.course_classes?.id);
+
+              if (labUpdateError) {
+                console.error("Error updating lab seats:", labUpdateError);
+              }
+            }
+          }
+        }
+      }
+
+      alert("Course and corresponding lab (if any) dropped successfully!");
       
       // Refresh data
       await fetchStudentData();
@@ -290,64 +501,83 @@ export default function Advising() {
   }
 
   return (
-    <div className="p-6">
-      <h1 className="text-3xl font-bold mb-6">Course Advising</h1>
+    <div className="p-8 bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-4xl font-bold mb-8 text-gray-800 flex items-center gap-3">
+          <box-icon name="book" type="solid" size="lg" color="#2563eb"></box-icon>
+          Course Advising
+        </h1>
 
-      {/* Credit Summary */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-        <h2 className="text-xl font-semibold mb-2">Credit Summary</h2>
-        <p className="text-lg">
-          Total Credits: <span className="font-bold">{totalCredits}</span> / 15
-        </p>
-        <div className="w-full bg-gray-200 rounded-full h-4 mt-2">
-          <div 
-            className={`h-4 rounded-full ${totalCredits > 15 ? 'bg-red-500' : 'bg-blue-500'}`}
-            style={{ width: `${Math.min((totalCredits / 15) * 100, 100)}%` }}
-          ></div>
+        {/* Credit Summary Card */}
+        <div className="bg-white rounded-xl shadow-md p-6 mb-8 max-w-md border-l-4 border-blue-500">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
+              <box-icon name="bar-chart-alt-2" color="#3b82f6"></box-icon>
+              Credit Summary
+            </h2>
+            <span className={`text-2xl font-bold ${totalCredits > 15 ? 'text-red-500' : 'text-blue-600'}`}>
+              {totalCredits}/15
+            </span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-3 mt-4 overflow-hidden">
+            <div 
+              className={`h-3 rounded-full transition-all duration-300 ${totalCredits > 15 ? 'bg-red-500' : 'bg-gradient-to-r from-blue-500 to-blue-600'}`}
+              style={{ width: `${Math.min((totalCredits / 15) * 100, 100)}%` }}
+            ></div>
+          </div>
+          <p className="text-sm text-gray-500 mt-3">
+            {totalCredits <= 12 && "You can add more courses"}
+            {totalCredits > 12 && totalCredits <= 15 && "Almost at the limit"}
+            {totalCredits > 15 && "⚠️ Credits exceeded limit"}
+          </p>
         </div>
-      </div>
 
-      {/* Enrolled Courses */}
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold mb-4">Enrolled Courses</h2>
+        {/* Enrolled Courses */}
+        <div className="mb-10">
+          <h2 className="text-2xl font-bold mb-5 text-gray-800 flex items-center gap-2">
+            <box-icon name="check-circle" type="solid" color="#22c55e"></box-icon>
+            Enrolled Courses
+          </h2>
         {enrolledCourses.length === 0 ? (
           <p className="text-gray-500">No courses enrolled yet.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full bg-white border rounded-lg">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="px-4 py-3 text-left">Course Code</th>
-                  <th className="px-4 py-3 text-left">Course Name</th>
-                  <th className="px-4 py-3 text-left">Credits</th>
-                  <th className="px-4 py-3 text-left">Section</th>
-                  <th className="px-4 py-3 text-left">Time</th>
-                  <th className="px-4 py-3 text-left">Days</th>
-                  <th className="px-4 py-3 text-left">Faculty</th>
-                  <th className="px-4 py-3 text-left">Action</th>
+          <div className="overflow-x-auto bg-white rounded-xl shadow-md">
+            <table className="min-w-full">
+              <thead>
+                <tr className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
+                  <th className="px-6 py-4 text-left text-sm font-semibold">Course Code</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold">Course Name</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold">Credits</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold">Section</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold">Time</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold">Days</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold">Room</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold">Faculty</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {enrolledCourses.map((enrollment) => {
+                {enrolledCourses.map((enrollment, idx) => {
                   const courseClass = enrollment.course_classes;
                   const course = courseClass?.courses;
                   return (
-                    <tr key={enrollment.id} className="border-t hover:bg-gray-50">
-                      <td className="px-4 py-3">{course?.course_code}</td>
-                      <td className="px-4 py-3">{course?.name}</td>
-                      <td className="px-4 py-3">{course?.credit}</td>
-                      <td className="px-4 py-3">{courseClass?.section}</td>
-                      <td className="px-4 py-3">
+                    <tr key={enrollment.id} className={`border-b transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-blue-50'} hover:bg-blue-100`}>
+                      <td className="px-6 py-4 font-semibold text-blue-600">{course?.course_code}</td>
+                      <td className="px-6 py-4 text-gray-700">{course?.name}</td>
+                      <td className="px-6 py-4 text-gray-600 font-medium">{course?.credit}</td>
+                      <td className="px-6 py-4 text-gray-600">{courseClass?.section}</td>
+                      <td className="px-6 py-4 text-gray-600">
                         {courseClass?.time_slot}
                       </td>
-                      <td className="px-4 py-3">{courseClass?.day_slot}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-6 py-4 text-gray-600">{courseClass?.day_slot}</td>
+                      <td className="px-6 py-4 text-gray-600">{courseClass?.room_no || "TBA"}</td>
+                      <td className="px-6 py-4 text-gray-600">
                         {courseClass?.faculty?.users?.full_name || "TBA"}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-6 py-4">
                         <button
                           onClick={() => handleDrop(enrollment)}
-                          className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
+                          className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors font-medium text-sm"
                         >
                           Drop
                         </button>
@@ -361,62 +591,91 @@ export default function Advising() {
         )}
       </div>
 
-      {/* Available Courses */}
-      <div>
-        <h2 className="text-2xl font-bold mb-4">Available Courses</h2>
-        {availableCourses.length === 0 ? (
-          <p className="text-gray-500">No available courses to enroll.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full bg-white border rounded-lg">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="px-4 py-3 text-left">Course Code</th>
-                  <th className="px-4 py-3 text-left">Course Name</th>
-                  <th className="px-4 py-3 text-left">Credits</th>
-                  <th className="px-4 py-3 text-left">Section</th>
-                  <th className="px-4 py-3 text-left">Time</th>
-                  <th className="px-4 py-3 text-left">Days</th>
-                  <th className="px-4 py-3 text-left">Faculty</th>
-                  <th className="px-4 py-3 text-left">Seats</th>
-                  <th className="px-4 py-3 text-left">Action</th>
-                </tr>
-              </thead>
+        {/* Available Courses */}
+        <div>
+          <h2 className="text-2xl font-bold mb-5 text-gray-800 flex items-center gap-2">
+            <box-icon name="book" type="solid" color="#a855f7"></box-icon>
+            Available Courses
+          </h2>
+          
+          {/* Search Bar */}
+          <div className="mb-6 max-w-md">
+            <div className="relative">
+              <box-icon name="search" className="absolute left-4 top-3.5 text-gray-400"></box-icon>
+              <input
+                type="text"
+                placeholder="Search courses (e.g., CSE)..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value.toUpperCase())}
+                className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white shadow-sm"
+              />
+            </div>
+          </div>
+
+          {availableCourses.length === 0 ? (
+            <p className="text-gray-500">No available courses to enroll.</p>
+          ) : (
+            <div className="overflow-x-auto bg-white rounded-xl shadow-md">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="bg-gradient-to-r from-purple-500 to-purple-600 text-white">
+                    <th className="px-6 py-4 text-left text-sm font-semibold">Course Code</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold">Course Name</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold">Credits</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold">Section</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold">Time</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold">Days</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold">Room</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold">Faculty</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold">Seats</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold">Action</th>
+                  </tr>
+                </thead>
               <tbody>
-                {availableCourses.map((courseClass) => {
+                {availableCourses
+                  .filter(courseClass => 
+                    courseClass.courses?.course_code?.includes(searchTerm)
+                  )
+                  .map((courseClass, idx) => {
                   const course = courseClass.courses;
                   const totalSeats = courseClass.seats || 0;
                   const filledSeats = courseClass.filled_seats || 0;
                   const hasSeats = filledSeats < totalSeats;
                   const wouldExceedCredits = (totalCredits + (course?.credit || 0)) > 15;
-                  const hasTimeClash = checkTimeClash(courseClass);
+                  const clashInfo = checkTimeClash(courseClass);
+                  const hasTimeClash = clashInfo.hasClash;
                   // Check if already enrolled in any section of this course
                   const alreadyEnrolledInCourse = enrolledCourses.some(
                     (enrollment) => enrollment.course_classes?.course_id === courseClass.course_id
                   );
                   return (
-                    <tr key={courseClass.id} className="border-t hover:bg-gray-50">
-                      <td className="px-4 py-3">{course?.course_code}</td>
-                      <td className="px-4 py-3">{course?.name}</td>
-                      <td className="px-4 py-3">{course?.credit}</td>
-                      <td className="px-4 py-3">{courseClass.section}</td>
-                      <td className="px-4 py-3">
+                    <tr key={courseClass.id} className={`border-b transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-purple-50'} hover:bg-purple-100`}>
+                      <td className="px-6 py-4 font-semibold text-purple-600">{course?.course_code}</td>
+                      <td className="px-6 py-4 text-gray-700">{course?.name}</td>
+                      <td className="px-6 py-4 text-gray-600 font-medium">{course?.credit}</td>
+                      <td className="px-6 py-4 text-gray-600">{courseClass.section}</td>
+                      <td className="px-6 py-4 text-gray-600">
                         {courseClass.time_slot}
                       </td>
-                      <td className="px-4 py-3">{courseClass.day_slot}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-6 py-4 text-gray-600">{courseClass.day_slot}</td>
+                      <td className="px-6 py-4 text-gray-600">{courseClass.room_no || "TBA"}</td>
+                      <td className="px-6 py-4 text-gray-600">
                         {courseClass.faculty?.users?.full_name || "TBA"}
                       </td>
-                      <td className="px-4 py-3">
-                        {courseClass.filled_seats !== undefined && courseClass.seats !== undefined 
-                          ? `${courseClass.filled_seats}/${courseClass.seats}` 
-                          : "N/A"}
+                      <td className="px-6 py-4">
+                        <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+                          hasSeats ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        }`}>
+                          {courseClass.filled_seats !== undefined && courseClass.seats !== undefined 
+                            ? `${courseClass.filled_seats}/${courseClass.seats}` 
+                            : "N/A"}
+                        </span>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-6 py-4">
                         {alreadyEnrolledInCourse ? (
                           <button
                             disabled
-                            className="px-3 py-1 rounded bg-gray-300 text-gray-500 cursor-not-allowed"
+                            className="px-4 py-2 rounded-lg bg-gray-200 text-gray-500 cursor-not-allowed font-medium text-sm"
                           >
                             Enrolled
                           </button>
@@ -424,15 +683,15 @@ export default function Advising() {
                           <button
                             onClick={() => handleEnroll(courseClass)}
                             disabled={!hasSeats || wouldExceedCredits || hasTimeClash}
-                            className={`px-3 py-1 rounded ${
+                            className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
                               !hasSeats || wouldExceedCredits || hasTimeClash
-                                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                                ? "bg-gray-200 text-gray-500 cursor-not-allowed"
                                 : "bg-green-500 text-white hover:bg-green-600"
                             }`}
                             title={
                               !hasSeats ? "No seats available" :
                               wouldExceedCredits ? "Would exceed 15 credit limit" :
-                              hasTimeClash ? "Time clash with enrolled courses" :
+                              hasTimeClash ? `Time clash with ${clashInfo.clashingCourse} - ${clashInfo.clashingCourseName}` :
                               "Click to enroll"
                             }
                           >
@@ -448,7 +707,8 @@ export default function Advising() {
               </tbody>
             </table>
           </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

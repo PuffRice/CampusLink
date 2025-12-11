@@ -1,13 +1,20 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 
 export default function ClassSchedule() {
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [hoveredCourse, setHoveredCourse] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchClassSchedule();
   }, []);
+
+  function handleCourseClick(courseCode) {
+    navigate('/student/enrolled-classes', { state: { selectedCourse: courseCode } });
+  }
 
   function toMinutes(timeStr) {
     if (!timeStr) return null;
@@ -39,15 +46,29 @@ export default function ClassSchedule() {
   }
 
   const baseDayNames = { S: "Sun", M: "Mon", T: "Tue", W: "Wed", R: "Thu" };
-  const comboDayNames = {
-    ST: ["Sun", "Tue"], SR: ["Sun", "Thu"], SM: ["Sun", "Mon"],
-    MT: ["Mon", "Tue"], MW: ["Mon", "Wed"], MR: ["Mon", "Thu"],
-    TW: ["Tue", "Wed"], TR: ["Tue", "Thu"], WR: ["Wed", "Thu"],
-  };
 
   function getDaysForSlot(daySlot) {
     if (!daySlot) return [];
-    if (comboDayNames[daySlot]) return comboDayNames[daySlot];
+    
+    // Define combo mappings
+    const combos = {
+      ST: ["Sun", "Tue"], 
+      SR: ["Sun", "Thu"], 
+      SM: ["Sun", "Mon"],
+      MT: ["Mon", "Tue"], 
+      MW: ["Mon", "Wed"], 
+      MR: ["Mon", "Thu"],
+      TW: ["Tue", "Wed"], 
+      TR: ["Tue", "Thu"], 
+      WR: ["Wed", "Thu"],
+    };
+    
+    // Check if it's a known combo
+    if (combos[daySlot]) {
+      return combos[daySlot];
+    }
+    
+    // Otherwise, process each character
     const days = [];
     for (const ch of daySlot.split("")) {
       const name = baseDayNames[ch];
@@ -78,7 +99,11 @@ export default function ClassSchedule() {
       };
 
       days.forEach((d) => {
-        if (occupied[`${i}-${d}`]) return;
+        if (occupied[`${i}-${d}`]) {
+          // Mark as undefined so it won't render a <td>
+          row.cells[d] = undefined;
+          return;
+        }
         
         // Find class whose day mapping includes this day and this row is within its time window
         const cls = classesArray.find((c) => {
@@ -157,7 +182,7 @@ export default function ClassSchedule() {
           const endMin = toMinutes(courseClass.time_slot.split(" - ")[1]);
           return {
             course: course?.course_code || "Unknown",
-            room: courseClass.room || "TBA",
+            room: courseClass.room_no || "TBA",
             day: courseClass.day_slot,
             startMin,
             endMin,
@@ -192,47 +217,61 @@ export default function ClassSchedule() {
   const days = tableData.days;
 
   return (
-    <div className="p-8">
-      <h1 className="text-3xl font-bold mb-6">Weekly Class Schedule</h1>
-      <div className="overflow-x-auto">
-        <table className="w-full bg-white border-2 border-gray-800 rounded-lg shadow-md">
+    <div className="p-8 bg-gray-50 min-h-screen">
+      <h1 className="text-3xl font-bold mb-6 text-gray-900">Weekly Class Schedule</h1>
+      <div className="overflow-x-auto bg-white rounded-lg shadow-sm">
+        <table className="w-full border-collapse">
           <thead>
-            <tr className="bg-gray-900 text-white">
-              <th className="px-6 py-4 text-left font-semibold border-b-2 border-gray-800">Time</th>
+            <tr className="bg-[#23336A]">
+              <th className="px-6 py-4 text-left font-semibold text-white border-b-2 border-[#23336A]">Time</th>
               {days.map((day) => (
-                <th key={day} className="px-6 py-4 text-center font-semibold border-b-2 border-gray-800 border-r-2 border-gray-800">
+                <th key={day} className="px-6 py-4 text-center font-semibold text-white border-b-2 border-[#23336A]">
                   {day}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, rowIndex) => (
-              <tr key={rowIndex} className={`${rowIndex % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
-                <td className="px-6 py-4 font-semibold text-gray-900 whitespace-nowrap align-top border-b-2 border-gray-800 border-r-2 border-gray-800">
-                  {row.timeSlot}
-                </td>
-                {days.map((day) => {
-                  const cell = row.cells[day];
-                  return (
-                    <td 
-                      key={`${rowIndex}-${day}`} 
-                      className="px-4 py-3 text-center align-middle border-b-2 border-gray-800 border-r-2 border-gray-800" 
-                      rowSpan={cell?.rowSpan || 1}
-                    >
-                      {cell?.content ? (
-                        <div className="text-center">
-                          <div className="font-bold text-blue-600 text-base">{cell.content.course}</div>
-                          <div className="text-sm text-gray-700 mt-1">{cell.content.room}</div>
-                        </div>
-                      ) : cell === null ? (
-                        <span className="text-gray-300">—</span>
-                      ) : null}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+            {rows.map((row, rowIndex) => {
+              // Check if any cell in this row has the hovered course
+              const hasHoveredCourse = hoveredCourse && days.some(day => {
+                const cell = row.cells[day];
+                return cell?.content?.course === hoveredCourse;
+              });
+              
+              return (
+                <tr key={rowIndex} className={`${rowIndex % 2 === 0 ? "bg-white" : "bg-blue-50"} ${hasHoveredCourse ? 'bg-blue-200' : ''} transition-colors duration-150`}>
+                  <td className="px-6 py-4 font-medium text-gray-800 whitespace-nowrap align-top border-b border-gray-200">
+                    {row.timeSlot}
+                  </td>
+                  {days.map((day) => {
+                    const cell = row.cells[day];
+                    // Skip rendering if cell is undefined (occupied by rowSpan from above)
+                    if (cell === undefined) return null;
+                    
+                    return (
+                      <td 
+                        key={`${rowIndex}-${day}`} 
+                        className={`px-4 py-3 text-center align-middle border-b border-l border-gray-200 transition-all duration-150 ${cell?.content ? 'cursor-pointer group' : ''}`}
+                        rowSpan={cell?.rowSpan || 1}
+                        onMouseEnter={() => cell?.content && setHoveredCourse(cell.content.course)}
+                        onMouseLeave={() => setHoveredCourse(null)}
+                        onClick={() => cell?.content && handleCourseClick(cell.content.course)}
+                      >
+                        {cell?.content ? (
+                          <div className="flex flex-col items-center justify-center py-2 h-full">
+                            <div className="font-bold text-[#23336A] text-base mb-1">{cell.content.course}</div>
+                            <div className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded group-hover:bg-white transition-colors">{cell.content.room}</div>
+                          </div>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

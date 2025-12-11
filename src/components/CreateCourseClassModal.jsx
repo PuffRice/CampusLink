@@ -111,7 +111,14 @@ export default function CreateCourseClassModal({ onClose, onSuccess }) {
   const [loading, setLoading] = useState(false);
   const [showCourseDropdown, setShowCourseDropdown] = useState(false);
 
-  const daySlotOptions = ["ST", "TR", "SR", "MW"];
+  const getAvailableDaySlots = () => {
+    if (classType === "Class") {
+      return ["ST", "TR", "SR", "MW"];
+    } else if (classType === "Lab") {
+      return ["S", "M", "W", "R", "T"];
+    }
+    return [];
+  };
 
   async function getNextSectionNumber(courseId) {
     const { data, error } = await supabase
@@ -185,6 +192,7 @@ export default function CreateCourseClassModal({ onClose, onSuccess }) {
       setAvailableTimeSlots(generateLabTimeSlots(courseCredits));
     }
     setTimeSlot("");
+    setDaySlot("");
   }, [classType, courseCredits]);
 
   const searchFilteredCourses = filteredCourses.filter((c) =>
@@ -302,31 +310,8 @@ export default function CreateCourseClassModal({ onClose, onSuccess }) {
             </div>
           )}
 
-          {/* Day Slot */}
-          {selectedCourse && (
-            <div>
-              <label className="block text-sm font-semibold text-slate-900 mb-2">Day Slot</label>
-              <div className="grid grid-cols-4 gap-2">
-                {daySlotOptions.map((slot) => (
-                  <button
-                    key={slot}
-                    type="button"
-                    onClick={() => setDaySlot(slot)}
-                    className={`py-2 px-2 rounded-lg font-semibold transition text-sm ${
-                      daySlot === slot
-                        ? "bg-blue-600 text-white"
-                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                    }`}
-                  >
-                    {slot}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Class Type */}
-          {daySlot && (
+          {selectedCourse && (
             <div>
               <label className="block text-sm font-semibold text-slate-900 mb-2">Type</label>
               <div className="grid grid-cols-2 gap-2">
@@ -348,8 +333,33 @@ export default function CreateCourseClassModal({ onClose, onSuccess }) {
             </div>
           )}
 
+          {/* Day Slot */}
+          {classType && (
+            <div>
+              <label className="block text-sm font-semibold text-slate-900 mb-2">Day Slot</label>
+              <div className={`grid gap-2 ${
+                classType === "Lab" ? "grid-cols-5" : "grid-cols-4"
+              }`}>
+                {getAvailableDaySlots().map((slot) => (
+                  <button
+                    key={slot}
+                    type="button"
+                    onClick={() => setDaySlot(slot)}
+                    className={`py-2 px-2 rounded-lg font-semibold transition text-sm ${
+                      daySlot === slot
+                        ? "bg-blue-600 text-white"
+                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    }`}
+                  >
+                    {slot}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Time Slot */}
-          {classType && availableTimeSlots.length > 0 && (
+          {daySlot && availableTimeSlots.length > 0 && (
             <div>
               <label className="block text-sm font-semibold text-slate-900 mb-2">Time Slot</label>
               <select
