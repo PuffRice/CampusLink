@@ -1,0 +1,26 @@
+%% Low-fidelity Wireframe - Enrolled Classes (LMS)
+flowchart TD
+  subgraph Header
+    H1[Course Title]
+    H2[Section • Semester]
+    H3[Back to Dashboard]
+  end
+
+  subgraph Body
+    subgraph Left
+      L1[Assignments List]
+      L2[Submit Work (student only)]
+      L3[Grades/Feedback]
+    end
+    subgraph Right
+      R1[Materials List]
+      R2[Announcements]
+      R3[Attendance Summary]
+    end
+  end
+
+  subgraph Footer
+    F1[© CampusLink]
+  end
+
+  Header --> Body --> Footer

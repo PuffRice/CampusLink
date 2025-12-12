@@ -1,0 +1,28 @@
+%% Activity - Schedule (Swimlane: User/System)
+flowchart TD
+  subgraph User
+    direction LR
+    Ustart(( ))
+    Uopen([Open Schedule])
+    Uselect([Select semester])
+    Uprint([Click Print])
+  end
+
+  subgraph System
+    direction LR
+    Sload([Fetch current and all semesters])
+    Sset([Set selected to current])
+    Sfetch([Fetch schedule for selected])
+    Sfound{Classes found?}
+    Sgrid([Render weekly grid])
+    Sempty([Show empty message, keep dropdown])
+    Sprint([Open print view])
+    Sdone((( )))
+  end
+
+  Ustart --> Uopen --> Sload --> Sset --> Sfetch --> Sfound
+  Sfound -- yes --> Sgrid --> Uprint --> Sprint --> Sdone
+  Sfound -- no --> Sempty --> Uselect --> Sfetch
+  
+  %% Style start as filled circle
+  style Ustart fill:#000,stroke:#000

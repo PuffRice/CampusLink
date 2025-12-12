@@ -1,0 +1,32 @@
+%% Activity - Login (Swimlane: User/System)
+flowchart TD
+  subgraph User
+    direction LR
+    Ustart(( ))
+    Ulogin([Login])
+  end
+
+  subgraph System
+    direction LR
+    Sverify([Verify Credentials])
+    Svalid{Credentials valid?}
+    Srole{Tab matches role?}
+    Sfirst{First login?}
+    Sroute{Route by role}
+    Sdone((( )))
+  end
+
+  Ustart --> Ulogin --> Sverify --> Svalid
+  Svalid -- invalid --> Ulogin
+  Svalid -- valid --> Srole
+  Srole -- no --> Ulogin
+  Srole -- yes --> Sfirst
+  Sfirst -- yes --> Sdone
+  Sfirst -- no --> Sroute
+  Sroute -- admin --> Sdone
+  Sroute -- staff --> Sdone
+  Sroute -- faculty --> Sdone
+  Sroute -- student --> Sdone
+  
+  %% Style start as filled circle
+  style Ustart fill:#000,stroke:#000

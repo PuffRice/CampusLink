@@ -1,0 +1,25 @@
+%% Low-fidelity Wireframe - Advising
+flowchart TD
+  subgraph Header
+    H1[Advising]
+    H2[Current Semester]
+    H3[Back to Dashboard]
+  end
+
+  subgraph Body
+    subgraph Left
+      L1[Enrolled (current semester only)]
+      L2[Credit Summary]
+    end
+    subgraph Right
+      R1[Available Courses (current semester)]
+      R2[Filters: Dept • Day • Time]
+      R3[Actions: Enroll • Unenroll]
+    end
+  end
+
+  subgraph Footer
+    F1[© CampusLink]
+  end
+
+  Header --> Body --> Footer

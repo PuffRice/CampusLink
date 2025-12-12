@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "render:diagrams": "mmdc -i docs/diagrams/login_activity.mmd -o public/diagrams/login_activity.svg && mmdc -i docs/diagrams/lms_activity.mmd -o public/diagrams/lms_activity.svg && mmdc -i docs/diagrams/schedule_activity.mmd -o public/diagrams/schedule_activity.svg && mmdc -i docs/diagrams/advising_activity.mmd -o public/diagrams/advising_activity.svg && mmdc -i docs/diagrams/class_diagram.mmd -o public/diagrams/class_diagram.svg && mmdc -i docs/diagrams/wire_student_dashboard.mmd -o public/diagrams/wire_student_dashboard.svg && mmdc -i docs/diagrams/wire_faculty_dashboard.mmd -o public/diagrams/wire_faculty_dashboard.svg && mmdc -i docs/diagrams/wire_enrolled_classes.mmd -o public/diagrams/wire_enrolled_classes.svg && mmdc -i docs/diagrams/wire_advising.mmd -o public/diagrams/wire_advising.svg"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.86.2",
@@ -18,6 +19,7 @@
     "react-router-dom": "^7.10.1"
   },
   "devDependencies": {
+    "@mermaid-js/mermaid-cli": "^10.9.1",
     "@eslint/js": "^9.39.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",

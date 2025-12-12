@@ -9,6 +9,7 @@ export default function Advising() {
   const [totalCredits, setTotalCredits] = useState(0);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [currentSemester, setCurrentSemester] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -74,11 +75,30 @@ export default function Advising() {
 
       setStudent(studentData);
 
+      // Fetch current semester
+      const { data: sysConfig } = await supabase
+        .from("system_config")
+        .select("current_semester_id")
+        .eq("id", 1)
+        .maybeSingle();
+
+      if (sysConfig?.current_semester_id) {
+        const { data: semesterData } = await supabase
+          .from("semesters")
+          .select("name")
+          .eq("id", sysConfig.current_semester_id)
+          .maybeSingle();
+        
+        if (semesterData) {
+          setCurrentSemester(semesterData.name);
+        }
+      }
+
       // Fetch enrolled courses (use user_id as the student identifier)
-      await fetchEnrolledCourses(studentData.user_id);
+      await fetchEnrolledCourses(studentData.user_id, sysConfig?.current_semester_id);
 
       // Fetch available courses
-      await fetchAvailableCourses(studentData.user_id);
+      await fetchAvailableCourses(studentData.user_id, sysConfig?.current_semester_id);
 
       setLoading(false);
     } catch (error) {
@@ -87,7 +107,7 @@ export default function Advising() {
     }
   }
 
-  async function fetchEnrolledCourses(studentId) {
+  async function fetchEnrolledCourses(studentId, semesterId) {
     const { data, error } = await supabase
       .from("enrollments")
       .select(`
@@ -104,17 +124,22 @@ export default function Advising() {
       return;
     }
 
-    setEnrolledCourses(data || []);
+    // Filter by current semester
+    const filtered = data?.filter(enrollment => 
+      enrollment.course_classes?.semester_id === semesterId
+    ) || [];
+
+    setEnrolledCourses(filtered);
     
     // Calculate total credits
-    const credits = data?.reduce((sum, enrollment) => {
+    const credits = filtered?.reduce((sum, enrollment) => {
       return sum + (enrollment.course_classes?.courses?.credit || 0);
     }, 0) || 0;
     setTotalCredits(credits);
   }
 
-  async function fetchAvailableCourses(studentId) {
-    // Fetch all course classes with course details
+  async function fetchAvailableCourses(studentId, semesterId) {
+    // Fetch all course classes with course details for the current semester
     console.log("Fetching available courses for student:", studentId);
     const { data, error } = await supabase
       .from("course_classes")
@@ -122,6 +147,7 @@ export default function Advising() {
         *,
         courses:course_id (*)
       `)
+      .eq("semester_id", semesterId)
       .order("id", { ascending: true });
 
     console.log("Course classes query result:", { data, error });
@@ -503,10 +529,18 @@ export default function Advising() {
   return (
     <div className="p-8 bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-4xl font-bold mb-8 text-gray-800 flex items-center gap-3">
-          <box-icon name="book" type="solid" size="lg" color="#2563eb"></box-icon>
-          Course Advising
-        </h1>
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-4xl font-bold text-gray-800 flex items-center gap-3">
+            <box-icon name="book" type="solid" size="lg" color="#2563eb"></box-icon>
+            Course Advising
+          </h1>
+          {currentSemester && (
+            <div className="text-right">
+              <p className="text-sm font-semibold text-gray-500">Current Semester</p>
+              <p className="text-2xl font-bold text-blue-600">{currentSemester}</p>
+            </div>
+          )}
+        </div>
 
         {/* Credit Summary Card */}
         <div className="bg-white rounded-xl shadow-md p-6 mb-8 max-w-md border-l-4 border-blue-500">

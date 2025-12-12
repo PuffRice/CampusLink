@@ -9,6 +9,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("student"); // "student" or "faculty"
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -35,6 +36,21 @@ export default function Login() {
 
     if (profileError || !profile) {
       alert("User profile not found.");
+      setLoading(false);
+      return;
+    }
+
+    // Validate login based on active tab
+    if (activeTab === "student" && profile.role !== "student") {
+      alert("Please use the Admin/Faculty tab to login.");
+      await supabase.auth.signOut();
+      setLoading(false);
+      return;
+    }
+
+    if (activeTab === "faculty" && profile.role === "student") {
+      alert("Please use the Student tab to login.");
+      await supabase.auth.signOut();
       setLoading(false);
       return;
     }
@@ -77,14 +93,26 @@ export default function Login() {
         {/* LEFT HALF */}
         <div className="login-left">
           <div className="login-tabs">
-            <button className="login-tab-active">Student</button>
-            <button className="login-tab">Admin/Faculty</button>
+            <button 
+              className={activeTab === "student" ? "login-tab-active" : "login-tab"}
+              onClick={() => setActiveTab("student")}
+              type="button"
+            >
+              Student
+            </button>
+            <button 
+              className={activeTab === "faculty" ? "login-tab-active" : "login-tab"}
+              onClick={() => setActiveTab("faculty")}
+              type="button"
+            >
+              Admin/Faculty
+            </button>
           </div>
 
           <form onSubmit={handleLogin} className="w-full max-w-xs">
             <input
               type="email"
-              placeholder="Student ID"
+              placeholder={activeTab === "student" ? "Email" : "Email"}
               className="login-input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -100,12 +128,13 @@ export default function Login() {
               required
             />
 
-            <p className="login-forgot">Forgot Password? Reset It Now!</p>
-
-            <div className="login-captcha">
-              <span className="login-captcha-text">5 + 10 =</span>
-              <input className="login-input-small" />
+            <div className="w-full flex items-start justify-between mb-2">
+              <p className="login-forgot">Forgot Password? Reset It Now!</p>
             </div>
+
+            <p className="login-disclaimer">
+              First-time login: use your Student ID (without dashes) as the password.
+            </p>
 
             <button className="login-btn">
               {loading ? "Logging in..." : "LOGIN"}

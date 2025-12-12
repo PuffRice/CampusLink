@@ -24,9 +24,9 @@ const sidebarItems = [
   { icon: "bx-user-check", label: "Advising" },
   { icon: "bx-book", label: "Enrolled Classes" },
   { icon: "bx-time-five", label: "Class Schedule" },
-  { icon: "bx-ticket", label: "Support Tickets" },
+  { icon: "bx-file", label: "Support Tickets" },
   { icon: "bx-file", label: "Grade Report" },
-  { icon: "bx-spreadsheet", label: "Accounts Ledger" },
+ // { icon: "bx-spreadsheet", label: "Accounts Ledger" },
 ];
 
 export default function StudentDashboard() {
@@ -37,6 +37,10 @@ export default function StudentDashboard() {
   const [todaySchedule, setTodaySchedule] = useState([]);
   const [scheduleLoading, setScheduleLoading] = useState(true);
   const [selectedCourseCode, setSelectedCourseCode] = useState(null);
+  const [enrolledCourses, setEnrolledCourses] = useState([]);
+  const [coursesLoading, setCoursesLoading] = useState(true);
+  const [departmentName, setDepartmentName] = useState("");
+  const [departmentLoaded, setDepartmentLoaded] = useState(false);
 
   useEffect(() => {
     async function loadSemesterName() {
@@ -64,23 +68,47 @@ export default function StudentDashboard() {
 
       const userId = data.id;
 
-      // Now get enrolled_at via students
+      // Get student's department
       const { data: studentData, error: studentError } = await supabase
+        .from("students")
+        .select("dept_id")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (studentData?.dept_id) {
+        const { data: deptData } = await supabase
+          .from("departments")
+          .select("name")
+          .eq("dept_id", studentData.dept_id)
+          .maybeSingle();
+        
+        if (deptData?.name) {
+          setDepartmentName(deptData.name);
+        } else {
+          setDepartmentName("");
+        }
+      } else {
+        setDepartmentName("");
+      }
+      setDepartmentLoaded(true);
+
+      // Get current semester from system_config
+      const { data: studentSems } = await supabase
         .from("students")
         .select("enrolled_at")
         .eq("user_id", userId)
         .maybeSingle();
 
-      if (studentError || !studentData?.enrolled_at) {
-        console.error("Failed to fetch enrolled semester id", studentError);
-        setEnrolledSemester("Not enrolled");
+      if (!studentSems?.enrolled_at) {
+        console.error("Failed to fetch current semester id");
+        setEnrolledSemester("Not available");
         return;
       }
 
       const { data: semesterData, error: semesterError } = await supabase
         .from("semesters")
         .select("name")
-        .eq("id", studentData.enrolled_at)
+        .eq("id", studentSems.enrolled_at)
         .maybeSingle();
 
       if (semesterError || !semesterData?.name) {
@@ -187,6 +215,7 @@ export default function StudentDashboard() {
 
     loadSemesterName();
     loadTodaySchedule();
+    loadEnrolledCourses();
   }, []);
 
   const baseDayNames = { S: "Sun", M: "Mon", T: "Tue", W: "Wed", R: "Thu", F: "Fri" };
@@ -267,6 +296,13 @@ export default function StudentDashboard() {
         return;
       }
 
+      // Get current semester
+      const { data: sysConfig } = await supabase
+        .from("system_config")
+        .select("current_semester_id")
+        .eq("id", 1)
+        .maybeSingle();
+
       const { data: enrollments, error: enrollErr } = await supabase
         .from("enrollments")
         .select(
@@ -277,6 +313,7 @@ export default function StudentDashboard() {
              time_slot,
              room_no,
              section,
+             semester_id,
              courses:course_id (name, course_code),
              faculty_user:faculty_id (full_name)
            )`
@@ -293,6 +330,7 @@ export default function StudentDashboard() {
       const todays = enrollments
         .map((en) => en.course_classes)
         .filter(Boolean)
+        .filter((cls) => cls.semester_id === sysConfig?.current_semester_id)
         .filter((cls) => isMeetingToday(cls.day_slot))
         .map((cls) => ({
           time: cls.time_slot || "TBA",
@@ -313,6 +351,83 @@ export default function StudentDashboard() {
       setTodaySchedule([]);
     }
     setScheduleLoading(false);
+  }
+
+  async function loadEnrolledCourses() {
+    setCoursesLoading(true);
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      const authUser = authData?.user;
+      if (!authUser?.email) {
+        setEnrolledCourses([]);
+        setCoursesLoading(false);
+        return;
+      }
+
+      const { data: userRow, error: userErr } = await supabase
+        .from("users")
+        .select("id")
+        .eq("email", authUser.email)
+        .maybeSingle();
+
+      if (userErr || !userRow?.id) {
+        console.error("loadEnrolledCourses user fetch error", userErr);
+        setEnrolledCourses([]);
+        setCoursesLoading(false);
+        return;
+      }
+
+      // Get current semester
+      const { data: sysConfig } = await supabase
+        .from("system_config")
+        .select("current_semester_id")
+        .eq("id", 1)
+        .maybeSingle();
+
+      if (!sysConfig?.current_semester_id) {
+        setEnrolledCourses([]);
+        setCoursesLoading(false);
+        return;
+      }
+
+      const { data: enrollments, error: enrollErr } = await supabase
+        .from("enrollments")
+        .select(
+          `id, class_id,
+           course_classes:class_id (
+             id,
+             section,
+             semester_id,
+             courses:course_id (name, course_code, credit)
+           )`
+        )
+        .eq("student_id", userRow.id);
+
+      if (enrollErr || !enrollments) {
+        console.error("loadEnrolledCourses enrollments error", enrollErr);
+        setEnrolledCourses([]);
+        setCoursesLoading(false);
+        return;
+      }
+
+      // Filter for current semester only
+      const currentSemesterCourses = enrollments
+        .map((en) => en.course_classes)
+        .filter(Boolean)
+        .filter((cls) => cls.semester_id === sysConfig.current_semester_id)
+        .map((cls) => ({
+          code: cls.courses?.course_code || "N/A",
+          name: cls.courses?.name || "Course",
+          credits: cls.courses?.credit || 0,
+          section: cls.section || "N/A",
+        }));
+
+      setEnrolledCourses(currentSemesterCourses);
+    } catch (err) {
+      console.error("loadEnrolledCourses exception", err);
+      setEnrolledCourses([]);
+    }
+    setCoursesLoading(false);
   }
 
   async function logout() {
@@ -353,7 +468,7 @@ export default function StudentDashboard() {
       <main className="flex-1 overflow-auto flex flex-col">
         {/* Fixed Header */}
         <div className="bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center flex-shrink-0">
-          <h1 className="text-4xl font-bold text-slate-900">Dashboard</h1>
+          <h1 className="text-4xl font-bold text-slate-900">CampusLink Student Portal</h1>
           <div className="flex items-center gap-4">
             <UserProfile onUserDataFetch={() => {}} />
             <button className="relative">
@@ -387,7 +502,7 @@ export default function StudentDashboard() {
                 <div className="relative z-10 flex items-center justify-between">
                   <div>
                     <p className="text-sm font-semibold mb-2 text-blue-200">Welcome, Md. Rashid</p>
-                    <h2 className="text-3xl font-bold mb-1">Department of CSE</h2>
+                    <h2 className="text-3xl font-bold mb-1">{departmentLoaded ? (departmentName ? `Department of ${departmentName}` : "Department not set") : "Loading..."}</h2>
                     <div className="inline-block bg-white/20 backdrop-blur-sm rounded-full px-4 py-2 mt-4">
                       <span className="text-sm font-semibold">BSc. in CSE</span>
                     </div>
@@ -401,26 +516,65 @@ export default function StudentDashboard() {
                 </div>
               </div>
 
+              {/* Stats Grid */}
+              <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+                {stats.map((item) => (
+                  <div
+                    key={item.label}
+                    className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-lg backdrop-blur"
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{item.label}</p>
+                    <div className="mt-2 flex items-baseline justify-between">
+                      <p className="text-2xl font-semibold text-slate-900">{item.value}</p>
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${item.badgeBg} ${item.badgeText}`}>
+                        {item.change}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-500">{item.detail}</p>
+                  </div>
+                ))}
+              </section>
+
               <div className="flex gap-8">
-                {/* Main Stats and Content */}
+                {/* Left Side - Enrolled Courses */}
                 <div className="flex-1">
-                  {/* Stats Grid */}
-                  <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-                    {stats.map((item) => (
-                      <div
-                        key={item.label}
-                        className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-lg backdrop-blur"
-                      >
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{item.label}</p>
-                        <div className="mt-2 flex items-baseline justify-between">
-                          <p className="text-2xl font-semibold text-slate-900">{item.value}</p>
-                          <span className={`text-xs font-semibold px-2 py-1 rounded-full ${item.badgeBg} ${item.badgeText}`}>
-                            {item.change}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-sm text-slate-500">{item.detail}</p>
+                  <section className="rounded-3xl border border-white/60 bg-white/80 p-6 shadow-lg backdrop-blur">
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-xl font-bold text-slate-900">Enrolled Courses</h3>
+                      <p className="text-sm font-semibold text-brandButton">{enrolledSemester || "Loading..."}</p>
+                    </div>
+                    
+                    {coursesLoading ? (
+                      <div className="text-center py-8 text-slate-500">Loading courses...</div>
+                    ) : enrolledCourses.length === 0 ? (
+                      <div className="text-center py-8 text-slate-500">No courses enrolled for this semester.</div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {enrolledCourses.map((course) => (
+                          <button
+                            key={course.code}
+                            onClick={() => {
+                              setSelectedCourseCode(course.code);
+                              setActiveMenu("Enrolled Classes");
+                            }}
+                            className="rounded-2xl border border-slate-200 bg-white p-5 text-left hover:shadow-lg hover:border-brandButton transition-all duration-200 group"
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <span className="inline-block rounded-lg bg-blue-50 px-3 py-1 text-xs font-bold text-brandButton group-hover:bg-brandButton group-hover:text-white transition-colors">
+                                {course.code}
+                              </span>
+                              <span className="text-xs font-semibold text-slate-500">{course.credits} Credits</span>
+                            </div>
+                            <h4 className="text-base font-bold text-slate-900 mb-2 line-clamp-2">{course.name}</h4>
+                            <div className="flex items-center gap-2">
+                              <span className="inline-block rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                                Section {course.section}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </section>
                 </div>
 

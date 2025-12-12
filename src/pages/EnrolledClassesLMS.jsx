@@ -9,12 +9,17 @@ export default function EnrolledClassesLMS({ selectedCourseCode }) {
   const [courses, setCourses] = useState([]);
   const [activeCourse, setActiveCourse] = useState(null);
   const [activeEnrollmentId, setActiveEnrollmentId] = useState(null);
+  const [userRole, setUserRole] = useState("student");
   const [assignments, setAssignments] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [attendance, setAttendance] = useState(null);
   const [classDetails, setClassDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [courseLoading, setCourseLoading] = useState(false);
+  const [currentSemester, setCurrentSemester] = useState(null);
+  const [showFacultySchedule, setShowFacultySchedule] = useState(false);
+  const [facultySchedule, setFacultySchedule] = useState([]);
+  const [facultyOfficeHours, setFacultyOfficeHours] = useState([]);
   const location = useLocation();
 
   useEffect(() => {
@@ -33,7 +38,7 @@ export default function EnrolledClassesLMS({ selectedCourseCode }) {
       // Get user from users table using email to get the integer ID
       const { data: userData, error: userError } = await supabase
         .from("users")
-        .select("id")
+        .select("id, role")
         .eq("email", user.email)
         .single();
       if (userError || !userData) {
@@ -42,6 +47,20 @@ export default function EnrolledClassesLMS({ selectedCourseCode }) {
         return;
       }
       console.log("User found:", userData);
+
+      // Set role for permissions (faculty can upload, students read-only)
+      setUserRole(userData.role || "student");
+
+      // Get current semester
+      const { data: sysConfig } = await supabase
+        .from("system_config")
+        .select("current_semester_id")
+        .eq("id", 1)
+        .maybeSingle();
+
+      if (sysConfig?.current_semester_id) {
+        setCurrentSemester(sysConfig.current_semester_id);
+      }
 
       // Fetch enrollments for this student (student_id in enrollments matches users.id)
       const { data: enrollments, error: enrollError } = await supabase
@@ -62,8 +81,9 @@ export default function EnrolledClassesLMS({ selectedCourseCode }) {
         return;
       }
 
-      // Flatten to course_classes array
+      // Filter by current semester and flatten to course_classes array
       const courseClasses = enrollments
+        .filter(e => e.course_classes?.semester_id === sysConfig?.current_semester_id)
         .map(e => ({ ...e.course_classes, enrollmentId: e.id }))
         .filter(Boolean);
       console.log("Course classes:", courseClasses);
@@ -134,6 +154,7 @@ export default function EnrolledClassesLMS({ selectedCourseCode }) {
         faculty: facultyName,
         facultyEmail: facultyEmail,
         officeRoom: officeRoom,
+        facultyId: course.faculty_id,
         seats: course.seats,
         filledSeats: course.filled_seats,
       });
@@ -162,6 +183,40 @@ export default function EnrolledClassesLMS({ selectedCourseCode }) {
     }
   }
 
+  async function loadFacultySchedule(facultyId) {
+    if (!facultyId) return;
+    try {
+      let semId = currentSemester;
+      if (!semId) {
+        const { data: sysConfig } = await supabase
+          .from("system_config")
+          .select("current_semester_id")
+          .eq("id", 1)
+          .maybeSingle();
+        semId = sysConfig?.current_semester_id;
+        setCurrentSemester(semId);
+      }
+
+      const { data: classes } = await supabase
+        .from("course_classes")
+        .select("*, courses:course_id(*)")
+        .eq("faculty_id", facultyId)
+        .eq("semester_id", semId);
+      setFacultySchedule(classes || []);
+
+      const { data: hours } = await supabase
+        .from("office_hours")
+        .select("*")
+        .eq("faculty_id", facultyId)
+        .order("day", { ascending: true });
+      setFacultyOfficeHours(hours || []);
+    } catch (e) {
+      console.error("Error loading faculty schedule:", e);
+      setFacultySchedule([]);
+      setFacultyOfficeHours([]);
+    }
+  }
+
 
 
   if (loading) {
@@ -180,6 +235,7 @@ export default function EnrolledClassesLMS({ selectedCourseCode }) {
   }
 
   return (
+    <>
     <div className="min-h-screen flex flex-col">
       {/* Top Tab Bar for Course Switching */}
       <div className="bg-gray-100 border-b border-gray-300">
@@ -224,12 +280,12 @@ export default function EnrolledClassesLMS({ selectedCourseCode }) {
           {/* Assignments */}
           <section className="mb-8">
             <h2 className="text-xl font-bold mb-4">Assignments</h2>
-            <AssignmentsBlock courseClassId={activeCourse.id} isReadOnly={true} />
+            <AssignmentsBlock courseClassId={activeCourse.id} isReadOnly={userRole !== 'faculty'} />
           </section>
           {/* Uploaded Materials */}
           <section className="mb-8">
             <h2 className="text-xl font-bold mb-4">Materials</h2>
-            <MaterialsBlock courseClassId={activeCourse.id} isReadOnly={true} />
+            <MaterialsBlock courseClassId={activeCourse.id} isReadOnly={userRole !== 'faculty'} />
           </section>
           {/* Attendance */}
           <section className="mb-8">
@@ -405,12 +461,12 @@ export default function EnrolledClassesLMS({ selectedCourseCode }) {
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div 
-                        className="h-2 rounded-full bg-blue-500"
+                        className="h-2 rounded-full bg-[#8B3A3A]"
                         style={{ width: `${classDetails.seats ? (classDetails.filledSeats / classDetails.seats) * 100 : 0}%` }}
                       ></div>
                     </div>
                   </div>
-                  <button className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 mt-4">
+                  <button className="w-full bg-[#8B3A3A] hover:bg-[#6B2A2A] text-white font-medium py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 mt-4">
                     <i className="bx bx-download"></i>
                     Download Course Outline
                   </button>
@@ -433,6 +489,13 @@ export default function EnrolledClassesLMS({ selectedCourseCode }) {
                     <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Office Room</p>
                     <p className="text-sm font-semibold text-gray-900">{classDetails.officeRoom}</p>
                   </div>
+                  <button
+                    className="w-full bg-[#8B3A3A] hover:bg-[#6B2A2A] text-white font-medium py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 mt-2"
+                    onClick={async () => { setShowFacultySchedule(true); await loadFacultySchedule(classDetails.facultyId); }}
+                  >
+                    <i className="bx bx-calendar"></i>
+                    View Schedule
+                  </button>
                 </div>
               </div>
             </div>
@@ -444,5 +507,64 @@ export default function EnrolledClassesLMS({ selectedCourseCode }) {
         </aside>
       </div>
     </div>
+    {showFacultySchedule && (
+      <div className="fixed inset-0 z-20 bg-black/40 backdrop-blur-sm flex items-center justify-center">
+        <div className="bg-white w-[900px] max-w-[95vw] rounded-xl shadow-xl overflow-hidden">
+          <div className="bg-[#8B3A3A] text-white px-6 py-4 flex items-center justify-between">
+            <h3 className="text-lg font-bold">Faculty Schedule & Office Hours</h3>
+            <button className="text-white/90 hover:text-white" onClick={() => setShowFacultySchedule(false)}>
+              <i className="bx bx-x text-2xl"></i>
+            </button>
+          </div>
+          <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white border border-gray-200 rounded-lg p-4">
+              <h4 className="font-semibold text-gray-900 mb-3">Class Schedule (Current Semester)</h4>
+              {facultySchedule.length === 0 ? (
+                <p className="text-gray-600">No classes found.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="px-3 py-2 text-left">Course</th>
+                      <th className="px-3 py-2 text-left">Section</th>
+                      <th className="px-3 py-2 text-left">Day</th>
+                      <th className="px-3 py-2 text-left">Time</th>
+                      <th className="px-3 py-2 text-left">Room</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {facultySchedule.map((cc) => (
+                      <tr key={cc.id} className="border-t">
+                        <td className="px-3 py-2">{cc.courses?.course_code}</td>
+                        <td className="px-3 py-2">{cc.section}</td>
+                        <td className="px-3 py-2">{cc.day_slot}</td>
+                        <td className="px-3 py-2">{cc.time_slot}</td>
+                        <td className="px-3 py-2">{cc.room_no || 'TBA'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="bg-white border border-gray-200 rounded-lg p-4">
+              <h4 className="font-semibold text-gray-900 mb-3">Office Hours</h4>
+              {facultyOfficeHours.length === 0 ? (
+                <p className="text-gray-600">No office hours set.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {facultyOfficeHours.map((oh) => (
+                    <li key={oh.id} className="flex items-center justify-between border rounded-md px-3 py-2">
+                      <span className="text-sm font-medium text-gray-800">{oh.day}</span>
+                      <span className="text-sm text-gray-700">{oh.start_time} - {oh.end_time}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

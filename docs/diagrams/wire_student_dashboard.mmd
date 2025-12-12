@@ -1,0 +1,25 @@
+%% Low-fidelity Wireframe - Student Dashboard
+flowchart TD
+  subgraph Header
+    H1[Logo]
+    H2[Nav: Dashboard • LMS • Advising • Reports]
+    H3[User Badge]
+  end
+
+  subgraph Body
+    subgraph Left
+      L1[Stats: CGPA • Credits • Dept]
+      L2[Enrolled Courses]
+      L3[Today's Schedule]
+    end
+    subgraph Right
+      R1[Announcements]
+      R2[Quick Actions]
+    end
+  end
+
+  subgraph Footer
+    F1[© CampusLink]
+  end
+
+  Header --> Body --> Footer

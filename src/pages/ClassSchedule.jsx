@@ -5,10 +5,20 @@ export default function ClassSchedule({ onCourseSelect }) {
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hoveredCourse, setHoveredCourse] = useState(null);
+  const [semesters, setSemesters] = useState([]);
+  const [selectedSemester, setSelectedSemester] = useState(null);
+  const [currentSemester, setCurrentSemester] = useState(null);
 
   useEffect(() => {
     fetchClassSchedule();
+    fetchSemesters();
   }, []);
+
+  useEffect(() => {
+    if (selectedSemester) {
+      fetchClassSchedule();
+    }
+  }, [selectedSemester]);
 
   function handleCourseClick(courseCode) {
     if (onCourseSelect) {
@@ -158,6 +168,23 @@ export default function ClassSchedule({ onCourseSelect }) {
         return;
       }
 
+      // Get current semester
+      const { data: sysConfig } = await supabase
+        .from("system_config")
+        .select("current_semester_id")
+        .eq("id", 1)
+        .maybeSingle();
+
+      const currentSemId = sysConfig?.current_semester_id;
+      setCurrentSemester(currentSemId);
+      
+      // Set selected semester to current semester by default
+      if (!selectedSemester && currentSemId) {
+        setSelectedSemester(currentSemId);
+      }
+
+      const semesterToUse = selectedSemester || currentSemId;
+
       const { data: enrollments, error: enrollError } = await supabase
         .from("enrollments")
         .select(`
@@ -174,6 +201,7 @@ export default function ClassSchedule({ onCourseSelect }) {
       }
 
       const classesArray = enrollments
+        .filter(enrollment => enrollment.course_classes?.semester_id === semesterToUse)
         .map((enrollment) => {
           const courseClass = enrollment.course_classes;
           const course = courseClass?.courses;
@@ -197,22 +225,33 @@ export default function ClassSchedule({ onCourseSelect }) {
     }
   }
 
+  async function fetchSemesters() {
+    try {
+      const { data: semesters, error } = await supabase
+        .from("semesters")
+        .select("id, name")
+        .order("id", { ascending: false });
+
+      if (error || !semesters) {
+        console.error("Error fetching semesters:", error);
+        return;
+      }
+
+      setSemesters(semesters);
+    } catch (err) {
+      console.error("Error fetching semesters:", err);
+    }
+  }
+
+  const handleSemesterChange = (semesterId) => {
+    setSelectedSemester(parseInt(semesterId));
+  };
+
   if (loading) {
     return <div className="p-6">Loading...</div>;
   }
 
-  if (classes.length === 0) {
-    return (
-      <div className="p-8">
-        <h1 className="text-3xl font-bold mb-6">Weekly Class Schedule</h1>
-        <div className="bg-gray-50 rounded-lg p-8 text-center text-gray-500">
-          <p>No classes scheduled yet.</p>
-        </div>
-      </div>
-    );
-  }
-
-  const tableData = generateRoutineTable(classes);
+  const tableData = classes.length > 0 ? generateRoutineTable(classes) : { rows: [], days: [] };
   const rows = tableData.rows;
   const days = tableData.days;
 
@@ -256,27 +295,50 @@ export default function ClassSchedule({ onCourseSelect }) {
       <div className="p-8 bg-gray-50 min-h-screen">
       <div className="flex items-center justify-between mb-6 no-print">
         <h1 className="text-3xl font-bold text-gray-900">Weekly Class Schedule</h1>
-        <button onClick={() => window.print()} className="px-4 py-2 bg-slate-600 text-white rounded-lg font-semibold hover:bg-slate-700 flex items-center gap-2">
-          <i className="bx bx-printer"></i>
-          <span>Print</span>
-        </button>
+        <div className="flex items-center gap-4">
+          {semesters.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-semibold text-gray-700">Semester:</label>
+              <select 
+                value={selectedSemester || currentSemester || ''}
+                onChange={(e) => handleSemesterChange(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {semesters.map((semester) => (
+                  <option key={semester.id} value={semester.id}>
+                    {semester.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <button onClick={() => window.print()} className="px-4 py-2 bg-slate-600 text-white rounded-lg font-semibold hover:bg-slate-700 flex items-center gap-2">
+            <i className="bx bx-printer"></i>
+            <span>Print</span>
+          </button>
+        </div>
       </div>
       <div className="print-schedule">
         <h2 style={{ textAlign: 'center', marginBottom: '20px', fontSize: '24px', fontWeight: 'bold' }}>Student Weekly Class Schedule</h2>
       </div>
-      <div className="overflow-x-auto bg-white rounded-lg shadow-sm print-schedule">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="bg-[#23336A]">
-              <th className="px-6 py-4 text-left font-semibold text-white border-b-2 border-[#23336A]">Time</th>
-              {days.map((day) => (
-                <th key={day} className="px-6 py-4 text-center font-semibold text-white border-b-2 border-[#23336A]">
-                  {day}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
+      {classes.length === 0 ? (
+        <div className="bg-gray-50 rounded-lg p-8 text-center text-gray-500">
+          <p>No classes scheduled for this semester.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto bg-white rounded-lg shadow-sm print-schedule">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="bg-[#23336A]">
+                <th className="px-6 py-4 text-left font-semibold text-white border-b-2 border-[#23336A]">Time</th>
+                {days.map((day) => (
+                  <th key={day} className="px-6 py-4 text-center font-semibold text-white border-b-2 border-[#23336A]">
+                    {day}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
             {rows.map((row, rowIndex) => {
               // Check if any cell in this row has the hovered course
               const hasHoveredCourse = hoveredCourse && days.some(day => {
@@ -319,7 +381,8 @@ export default function ClassSchedule({ onCourseSelect }) {
             })}
           </tbody>
         </table>
-      </div>
+        </div>
+      )}
     </div>
     </>
   );

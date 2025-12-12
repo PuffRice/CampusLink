@@ -1,0 +1,42 @@
+%% Activity - Add Course (Swimlane: User/System)
+flowchart TD
+  subgraph User
+    direction LR
+    Ustart(( ))
+    Ulogin([Login])
+    Uselect([Select course to add])
+    Umore{Select more?}
+    Uconfirm([Confirm courses])
+    Ureceipt([Receive payment slip])
+    Uend((( )))
+  end
+
+  subgraph System
+    direction LR
+    Sverify([Verify credentials])
+    Svalid{Valid?}
+    Sdash([Load dashboard])
+    Sprereq([Check prerequisite])
+    Sprereqok{Completed?}
+    Svac([Check seat vacancy])
+    Svacok{Vacant?}
+    Sconf([Check conflict with selected])
+    Sconfok{Conflict?}
+    Sadd([Add to Selected Courses])
+    Spdf([Generate print-ready PDF])
+  end
+
+  Ustart --> Ulogin --> Sverify --> Svalid
+  Svalid -- invalid --> Ulogin
+  Svalid -- valid --> Sdash --> Uselect --> Sprereq --> Sprereqok
+  Sprereqok -- not completed --> Uselect
+  Sprereqok -- completed --> Svac --> Svacok
+  Svacok -- not vacant --> Uselect
+  Svacok -- vacant --> Sconf --> Sconfok
+  Sconfok -- conflict --> Uselect
+  Sconfok -- no conflict --> Sadd --> Umore
+  Umore -- Yes --> Uselect
+  Umore -- No --> Uconfirm --> Spdf --> Ureceipt --> Uend
+  
+  %% Style start as filled circle
+  style Ustart fill:#000,stroke:#000

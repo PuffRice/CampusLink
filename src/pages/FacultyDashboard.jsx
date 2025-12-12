@@ -120,7 +120,7 @@ export default function FacultyDashboard() {
   }
 
   return (
-    <div className="min-h-screen flex bg-gradient-to-br from-slate-50 via-blue-50 to-slate-50">
+    <div className="min-h-screen flex bg-gradient-to-br from-slate-50 via-[#F6EAEA] to-slate-50">
       {/* Sidebar */}
       <aside className="w-64 bg-[#800000] min-h-screen p-6 flex flex-col">
         <div className="mb-8">
@@ -196,32 +196,32 @@ export default function FacultyDashboard() {
               {/* Stats Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                  <div className="bg-blue-50 rounded-lg p-3 mb-4 w-fit">
-                    <p className="text-blue-700 text-xs font-semibold uppercase">Assigned Courses</p>
+                  <div className="bg-[#F6EAEA] rounded-lg p-3 mb-4 w-fit">
+                    <p className="text-[#7A2F2F] text-xs font-semibold uppercase">Assigned Courses</p>
                   </div>
                   <p className="text-3xl font-bold text-slate-900 mb-2">{assignedCourses.length}</p>
                   <p className="text-xs text-slate-600 mb-1">This semester</p>
                   <p className="text-xs text-slate-500">Active sections</p>
                 </div>
                 <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                  <div className="bg-sky-50 rounded-lg p-3 mb-4 w-fit">
-                    <p className="text-sky-700 text-xs font-semibold uppercase">Total Students</p>
+                  <div className="bg-[#F6EAEA] rounded-lg p-3 mb-4 w-fit">
+                    <p className="text-[#7A2F2F] text-xs font-semibold uppercase">Total Students</p>
                   </div>
                   <p className="text-3xl font-bold text-slate-900 mb-2">{totalStudents}</p>
                   <p className="text-xs text-slate-600 mb-1">Across all sections</p>
                   <p className="text-xs text-slate-500">Enrolled this semester</p>
                 </div>
                 <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                  <div className="bg-emerald-50 rounded-lg p-3 mb-4 w-fit">
-                    <p className="text-emerald-700 text-xs font-semibold uppercase">Grades Submitted</p>
+                  <div className="bg-[#F6EAEA] rounded-lg p-3 mb-4 w-fit">
+                    <p className="text-[#7A2F2F] text-xs font-semibold uppercase">Grades Submitted</p>
                   </div>
                   <p className="text-3xl font-bold text-slate-900 mb-2">82%</p>
                   <p className="text-xs text-slate-600 mb-1">2 courses completed</p>
                   <p className="text-xs text-slate-500">2 pending</p>
                 </div>
                 <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                  <div className="bg-amber-50 rounded-lg p-3 mb-4 w-fit">
-                    <p className="text-amber-700 text-xs font-semibold uppercase">Attendance Rate</p>
+                  <div className="bg-[#F6EAEA] rounded-lg p-3 mb-4 w-fit">
+                    <p className="text-[#7A2F2F] text-xs font-semibold uppercase">Attendance Rate</p>
                   </div>
                   <p className="text-3xl font-bold text-slate-900 mb-2">{attendanceRate}</p>
                   <p className="text-xs text-slate-600 mb-1">Average across courses</p>
@@ -230,9 +230,9 @@ export default function FacultyDashboard() {
               </div>
 
               {/* Welcome Message */}
-              <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl p-8 shadow-lg">
+              <div className="bg-gradient-to-r from-[#8B3A3A] to-[#6B2A2A] text-white rounded-xl p-8 shadow-lg">
                 <h2 className="text-2xl font-bold mb-2">Welcome back, Faculty Member</h2>
-                <p className="text-blue-100">You have {assignedCourses.length} courses assigned this semester. Check your assigned courses for more details.</p>
+                <p className="text-white/80">You have {assignedCourses.length} courses assigned this semester. Check your assigned courses for more details.</p>
               </div>
 
               {/* Assigned Courses Overview */}

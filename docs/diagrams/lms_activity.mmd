@@ -1,0 +1,29 @@
+%% Activity - LMS (Swimlane: User/System)
+flowchart TD
+  subgraph User
+    direction LR
+    Ustart(( ))
+    Uopen([Open LMS page])
+    Uupload([Upload assignment/material])
+    Uview([View posted items])
+  end
+
+  subgraph System
+    direction LR
+    Suser([Fetch user and role])
+    Ssem([Fetch current semester])
+    Sclasses([Load enrolled classes])
+    Srole{Role is faculty?}
+    Ssave([Save to Supabase])
+    Sfb{Save ok?}
+    Sdone((( )))
+  end
+
+  Ustart --> Uopen --> Suser --> Ssem --> Sclasses --> Srole
+  Srole -- yes --> Uupload --> Ssave --> Sfb
+  Srole -- no --> Uview
+  Sfb -- yes --> Uview --> Sdone
+  Sfb -- no --> Uupload
+  
+  %% Style start as filled circle
+  style Ustart fill:#000,stroke:#000

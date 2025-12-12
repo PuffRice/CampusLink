@@ -1,0 +1,240 @@
+%% Object-Oriented Class Diagram - CampusLink Domain Model
+classDiagram
+
+%% Abstract base class
+class User {
+  <<abstract>>
+  - id: int
+  - email: string
+  - fullName: string
+  - role: string
+  - createdAt: Date
+  - firstLogin: boolean
+  + login()
+  + logout()
+  + changePassword()
+  + getProfile()
+}
+
+%% Concrete user types (inheritance)
+class Student {
+  - studentCode: string
+  - credits: int
+  - enrolledSemester: Semester
+  + enrollInCourse(courseClass: CourseClass)
+  + dropCourse(courseClass: CourseClass)
+  + viewGradeReport(): GradeReport
+  + getEnrollments(): Enrollment[]
+  + submitAssignment(assignment: Assignment, file: File)
+  + viewAttendance(): Attendance
+}
+
+class Faculty {
+  - facultyCode: string
+  - designation: string
+  - joinedSemester: Semester
+  - officeRoom: string
+  + teachClass(courseClass: CourseClass)
+  + uploadMaterial(courseClass: CourseClass, material: Material)
+  + createAssignment(courseClass: CourseClass, assignment: Assignment)
+  + submitGrades(enrollment: Enrollment, grade: double)
+  + viewClassRoster(courseClass: CourseClass): Student[]
+  + recordAttendance(enrollment: Enrollment, classNum: int, present: bool)
+  + getOfficeHours(): OfficeHour[]
+}
+
+class Staff {
+  - staffCode: string
+  - permissionLevel: int
+  + createCourseClass(courseClass: CourseClass)
+  + allocateSeats(courseClass: CourseClass, seats: int)
+  + manageSystemConfig(config: SystemConfig)
+  + processServiceRequest(request: ServiceRequest)
+}
+
+class Admin {
+  + manageUsers()
+  + configureSemester(semester: Semester)
+  + viewLogs(): Log[]
+  + updateSystemConfig(config: SystemConfig)
+}
+
+%% Domain objects
+class Department {
+  - deptId: int
+  - name: string
+  - tag: string
+  - chair: Faculty
+  + getOfferedCourses(): Course[]
+  + getFacultyList(): Faculty[]
+  + getStudentList(): Student[]
+}
+
+class Semester {
+  - id: int
+  - name: string
+  + getCourseClasses(): CourseClass[]
+  + getEnrolledStudents(): Student[]
+}
+
+class Course {
+  - id: int
+  - courseCode: string
+  - name: string
+  - credit: float
+  - prerequisite: Course
+  + getCourseInfo(): string
+  + checkPrerequisite(student: Student): boolean
+  + getOfferedClasses(semester: Semester): CourseClass[]
+}
+
+class CourseClass {
+  - id: int
+  - section: int
+  - daySlot: string
+  - timeSlot: string
+  - roomNo: string
+  - classType: string
+  - seats: int
+  - filledSeats: int
+  + checkVacancy(): boolean
+  + enrollStudent(student: Student): Enrollment
+  + getEnrolledStudents(): Student[]
+  + getAssignments(): Assignment[]
+  + getMaterials(): Material[]
+  + getAnnouncements(): Announcement[]
+  + recordAttendance(enrollment: Enrollment, classNum: int, present: bool)
+}
+
+class Enrollment {
+  - id: int
+  - score: int
+  - grade: double
+  + calculateGrade(): double
+  + updateScore(score: int)
+  + getAttendance(): Attendance
+}
+
+class Assignment {
+  - id: int
+  - title: string
+  - description: string
+  - fileUrl: string
+  - deadline: Date
+  - createdAt: Date
+  + getSubmissions(): Submission[]
+  + isLate(submittedAt: Date): boolean
+}
+
+class Submission {
+  - id: int
+  - fileUrl: string
+  - submittedAt: Date
+  - reviewed: boolean
+  - grade: string
+  - feedback: string
+  + submit(file: File)
+  + review(grade: string, feedback: string)
+}
+
+class Material {
+  - id: int
+  - title: string
+  - description: string
+  - fileName: string
+  - fileUrl: string
+  - fileSize: int
+  - createdAt: Date
+  + download(): File
+}
+
+class Announcement {
+  - id: int
+  - content: string
+  - type: string
+  - createdAt: Date
+  - updatedAt: Date
+  + post()
+  + edit(content: string)
+}
+
+class Attendance {
+  - id: int
+  - class1: boolean
+  - class2: boolean
+  - class14: boolean
+  + markPresent(classNum: int)
+  + markAbsent(classNum: int)
+  + calculatePercentage(): float
+}
+
+class OfficeHour {
+  - id: int
+  - day: string
+  - startTime: string
+  - endTime: string
+  + isAvailable(day: string, time: string): boolean
+}
+
+class ServiceRequest {
+  - id: int
+  - requestType: string
+  - description: string
+  - fileUrl: string
+  - status: string
+  - createdAt: Date
+  + submit()
+  + updateStatus(status: string)
+}
+
+class SystemConfig {
+  - currentSemester: Semester
+  - advisingStartDate: Date
+  - advisingEndDate: Date
+  - addDropDeadline: Date
+  - gradeSubmissionDeadline: Date
+  + updateCurrentSemester(semester: Semester)
+  + isAdvisingOpen(): boolean
+}
+
+class Log {
+  - id: int
+  - action: string
+  - performedAt: Date
+  + record(user: User, action: string)
+}
+
+%% Inheritance relationships
+User <|-- Student
+User <|-- Faculty
+User <|-- Staff
+User <|-- Admin
+
+%% Associations with multiplicities
+Student "0..*" -- "1" Department : belongs to
+Faculty "0..*" -- "1" Department : belongs to
+Department "1" -- "0..1" Faculty : chaired by
+
+Course "0..*" -- "1" Department : offered by
+Course "0..1" -- "0..*" Course : prerequisite
+
+CourseClass "0..*" -- "1" Course : instance of
+CourseClass "0..*" -- "1" Semester : offered in
+CourseClass "0..*" -- "1" Faculty : taught by
+
+Student "0..*" -- "0..*" CourseClass : enrolls in
+CourseClass "1" -- "0..*" Enrollment : has
+
+%% Compositions (strong ownership)
+Enrollment "1" *-- "0..1" Attendance : tracks
+CourseClass "1" *-- "0..*" Assignment : contains
+CourseClass "1" *-- "0..*" Material : contains
+CourseClass "1" *-- "0..*" Announcement : contains
+Assignment "1" *-- "0..*" Submission : receives
+
+%% Other associations
+Submission "0..*" -- "1" Student : submitted by
+Faculty "1" -- "0..*" OfficeHour : schedules
+Student "1" -- "0..*" ServiceRequest : creates
+SystemConfig "1" -- "1" Semester : current
+User "1" -- "0..*" Log : performs

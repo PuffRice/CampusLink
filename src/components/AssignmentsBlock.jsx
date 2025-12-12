@@ -10,10 +10,28 @@ export default function AssignmentsBlock({ courseClassId, isReadOnly = false }) 
   const [attachment, setAttachment] = useState(null);
   const [loading, setLoading] = useState(false);
   const [posting, setPosting] = useState(false);
+  const [userRole, setUserRole] = useState(null);
+  const [submittingId, setSubmittingId] = useState(null);
 
   useEffect(() => {
     fetchAssignments();
+    fetchUserRole();
   }, [courseClassId]);
+
+  async function fetchUserRole() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data, error } = await supabase
+        .from("users")
+        .select("id, role")
+        .eq("email", user.email)
+        .single();
+      if (!error && data) setUserRole(data.role);
+    } catch (e) {
+      console.error("Error fetching user role", e);
+    }
+  }
 
   async function fetchAssignments() {
     setLoading(true);
@@ -22,7 +40,7 @@ export default function AssignmentsBlock({ courseClassId, isReadOnly = false }) 
         .from("assignments")
         .select("*, users(*)")
         .eq("course_class_id", courseClassId)
-        .order("due_date", { ascending: true });
+        .order("deadline", { ascending: true });
 
       if (error) {
         console.error("Error fetching assignments:", error);
@@ -36,6 +54,66 @@ export default function AssignmentsBlock({ courseClassId, isReadOnly = false }) 
       setAssignments([]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function submitAssignmentFile(assignment, file) {
+    if (!file) return;
+    setSubmittingId(assignment.id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.error("No authenticated user found");
+        return;
+      }
+
+      const { data: userData, error: userErr } = await supabase
+        .from("users")
+        .select("id")
+        .eq("email", user.email)
+        .single();
+
+      if (userErr || !userData) {
+        console.error("Error fetching user id:", userErr);
+        return;
+      }
+
+      const ext = file.name.split(".").pop();
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
+      const filePath = `submissions/${assignment.id}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("course-files")
+        .upload(filePath, file);
+
+      if (uploadError) {
+        console.error("Error uploading submission:", uploadError);
+        return;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("course-files")
+        .getPublicUrl(filePath);
+
+      const { error: insertErr } = await supabase
+        .from("submissions")
+        .insert([
+          {
+            assignment_id: assignment.id,
+            student_id: userData.id,
+            file_url: urlData.publicUrl,
+          },
+        ]);
+
+      if (insertErr) {
+        console.error("Error inserting submission:", insertErr);
+        return;
+      }
+      // Optionally refetch to show submission status later
+    } catch (e) {
+      console.error("Error submitting assignment:", e);
+    } finally {
+      setSubmittingId(null);
     }
   }
 
@@ -93,8 +171,8 @@ export default function AssignmentsBlock({ courseClassId, isReadOnly = false }) 
             user_id: userData.id,
             title: title,
             description: description || null,
-            due_date: dueDateTimeString,
-            attachment_url: attachmentUrl,
+            deadline: dueDateTimeString,
+            file_url: attachmentUrl,
           },
         ])
         .select("*, users(*)")
@@ -221,7 +299,7 @@ export default function AssignmentsBlock({ courseClassId, isReadOnly = false }) 
           <div className="bg-gray-50 rounded-lg p-8 text-center text-gray-500">No assignments yet</div>
         ) : (
           assignments.map((assignment) => {
-            const { dateStr, timeStr, isOverdue } = formatDueDate(assignment.due_date);
+            const { dateStr, timeStr, isOverdue } = formatDueDate(assignment.deadline);
             return (
               <div key={assignment.id} className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm hover:shadow-md transition">
                 <div className="flex items-start justify-between mb-3">
@@ -253,10 +331,10 @@ export default function AssignmentsBlock({ courseClassId, isReadOnly = false }) 
                   </div>
                 </div>
                 
-                {assignment.attachment_url && (
+                {assignment.file_url && (
                   <div className="mt-3 pt-3 border-t border-gray-200">
                     <a
-                      href={assignment.attachment_url}
+                      href={assignment.file_url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-2 text-[#8B3A3A] hover:text-[#6B2A2A] font-semibold text-sm"
@@ -264,6 +342,25 @@ export default function AssignmentsBlock({ courseClassId, isReadOnly = false }) 
                       <i className="bx bx-paperclip text-lg"></i>
                       <span>View Attachment</span>
                     </a>
+                  </div>
+                )}
+
+                {userRole === 'student' && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Submit your work</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="file"
+                        onChange={(e) => submitAssignmentFile(assignment, e.target.files[0])}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#8B3A3A]"
+                      />
+                      <button
+                        disabled={submittingId === assignment.id}
+                        className="px-4 py-2 bg-[#8B3A3A] text-white rounded-lg font-semibold hover:bg-[#6B2A2A] disabled:bg-gray-400 transition"
+                      >
+                        {submittingId === assignment.id ? 'Submitting...' : 'Upload'}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

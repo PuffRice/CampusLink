@@ -1,0 +1,25 @@
+%% Low-fidelity Wireframe - Faculty Dashboard
+flowchart TD
+  subgraph Header
+    H1[Logo]
+    H2[Nav: Dashboard • Classes • LMS • Office Hours]
+    H3[User Badge]
+  end
+
+  subgraph Body
+    subgraph Left
+      L1[Teaching Load]
+      L2[Classes]
+      L3[Office Hours]
+    end
+    subgraph Right
+      R1[Announcements]
+      R2[Actions]
+    end
+  end
+
+  subgraph Footer
+    F1[© CampusLink]
+  end
+
+  Header --> Body --> Footer
