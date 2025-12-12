@@ -1,19 +1,19 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 
-export default function ClassSchedule() {
+export default function ClassSchedule({ onCourseSelect }) {
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hoveredCourse, setHoveredCourse] = useState(null);
-  const navigate = useNavigate();
 
   useEffect(() => {
     fetchClassSchedule();
   }, []);
 
   function handleCourseClick(courseCode) {
-    navigate('/student/enrolled-classes', { state: { selectedCourse: courseCode } });
+    if (onCourseSelect) {
+      onCourseSelect(courseCode);
+    }
   }
 
   function toMinutes(timeStr) {
@@ -217,9 +217,54 @@ export default function ClassSchedule() {
   const days = tableData.days;
 
   return (
-    <div className="p-8 bg-gray-50 min-h-screen">
-      <h1 className="text-3xl font-bold mb-6 text-gray-900">Weekly Class Schedule</h1>
-      <div className="overflow-x-auto bg-white rounded-lg shadow-sm">
+    <>
+      <style>{`
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          .print-schedule, .print-schedule * {
+            visibility: visible;
+          }
+          .print-schedule {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            padding: 20px;
+          }
+          .no-print {
+            display: none !important;
+          }
+          .print-schedule table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+          .print-schedule th, .print-schedule td {
+            border: 1px solid #000 !important;
+            padding: 8px !important;
+            text-align: center;
+          }
+          .print-schedule th {
+            background-color: #23336A !important;
+            color: white !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+        }
+      `}</style>
+      <div className="p-8 bg-gray-50 min-h-screen">
+      <div className="flex items-center justify-between mb-6 no-print">
+        <h1 className="text-3xl font-bold text-gray-900">Weekly Class Schedule</h1>
+        <button onClick={() => window.print()} className="px-4 py-2 bg-slate-600 text-white rounded-lg font-semibold hover:bg-slate-700 flex items-center gap-2">
+          <i className="bx bx-printer"></i>
+          <span>Print</span>
+        </button>
+      </div>
+      <div className="print-schedule">
+        <h2 style={{ textAlign: 'center', marginBottom: '20px', fontSize: '24px', fontWeight: 'bold' }}>Student Weekly Class Schedule</h2>
+      </div>
+      <div className="overflow-x-auto bg-white rounded-lg shadow-sm print-schedule">
         <table className="w-full border-collapse">
           <thead>
             <tr className="bg-[#23336A]">
@@ -276,5 +321,6 @@ export default function ClassSchedule() {
         </table>
       </div>
     </div>
+    </>
   );
 }

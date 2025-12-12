@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 import UserProfile from "../components/UserProfile";
 import FacultyAssignedCourses from "./FacultyAssignedCourses";
+import FacultyClassSchedule from "./FacultyClassSchedule";
 
 const sidebarItems = [
   { icon: "bx-grid-alt", label: "Dashboard" },
@@ -15,13 +16,9 @@ export default function FacultyDashboard() {
   const [activeMenu, setActiveMenu] = useState("Dashboard");
   const [assignedCourses, setAssignedCourses] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  const stats = [
-    { label: "Assigned Courses", value: assignedCourses.length.toString(), detail: "This semester", change: "2 labs + 2 lectures", badgeBg: "bg-blue-50", badgeText: "text-blue-700" },
-    { label: "Total Students", value: "128", detail: "Across all sections", change: "Average 32 per course", badgeBg: "bg-sky-50", badgeText: "text-sky-700" },
-    { label: "Grades Submitted", value: "82%", detail: "2 courses completed", change: "2 pending", badgeBg: "bg-emerald-50", badgeText: "text-emerald-700" },
-    { label: "Attendance Rate", value: "91%", detail: "Average across courses", change: "+3.2% from last month", badgeBg: "bg-amber-50", badgeText: "text-amber-700" },
-  ];
+  const [selectedCourse, setSelectedCourse] = useState(null);
+  const [totalStudents, setTotalStudents] = useState(0);
+  const [attendanceRate, setAttendanceRate] = useState("0%");
 
   useEffect(() => {
     fetchAssignedCourses();
@@ -68,6 +65,44 @@ export default function FacultyDashboard() {
       }
 
       setAssignedCourses(courseClasses);
+      if (courseClasses.length > 0) {
+        setSelectedCourse(courseClasses[0]);
+      }
+
+      // Fetch total students across all courses
+      const classIds = courseClasses.map(cc => cc.id);
+      if (classIds.length > 0) {
+        const { data: enrollments, error: enrollErr } = await supabase
+          .from("enrollments")
+          .select("id")
+          .in("class_id", classIds);
+        if (!enrollErr && enrollments) {
+          setTotalStudents(enrollments.length);
+        }
+
+        // Fetch attendance data for all enrollments
+        const { data: attendanceRecords, error: attErr } = await supabase
+          .from("attendance")
+          .select("*")
+          .in("enrollment_id", enrollments?.map(e => e.id) || []);
+        
+        if (!attErr && attendanceRecords && attendanceRecords.length > 0) {
+          let totalClasses = 0;
+          let presentCount = 0;
+          attendanceRecords.forEach(record => {
+            for (let i = 1; i <= 12; i++) {
+              const val = record[`class${i}`];
+              if (val !== null && val !== undefined) {
+                totalClasses++;
+                if (val === true) presentCount++;
+              }
+            }
+          });
+          const rate = totalClasses > 0 ? Math.round((presentCount / totalClasses) * 100) : 0;
+          setAttendanceRate(`${rate}%`);
+        }
+      }
+
       setLoading(false);
     } catch (err) {
       console.error("Error fetching assigned courses:", err);
@@ -116,7 +151,12 @@ export default function FacultyDashboard() {
                   {assignedCourses.map((course) => (
                     <button
                       key={course.id}
-                      className="w-full text-left px-4 py-2 text-xs text-white/60 hover:text-white rounded transition"
+                      onClick={() => setSelectedCourse(course)}
+                      className={`w-full text-left px-4 py-2 text-xs rounded transition ${
+                        selectedCourse?.id === course.id
+                          ? "bg-brandButton text-white font-semibold"
+                          : "text-white/60 hover:text-white hover:bg-white/10"
+                      }`}
                       title={course.courses?.name}
                     >
                       {course.courses?.course_code} - Section {course.section}
@@ -148,21 +188,45 @@ export default function FacultyDashboard() {
         {/* Scrollable Content */}
         <div className="flex-1 overflow-auto">
           {activeMenu === "Assigned Courses" ? (
-            <FacultyAssignedCourses courses={assignedCourses} />
+            <FacultyAssignedCourses courses={assignedCourses} selectedCourse={selectedCourse} onCourseChange={setSelectedCourse} />
+          ) : activeMenu === "Class Schedule" ? (
+            <FacultyClassSchedule />
           ) : activeMenu === "Dashboard" ? (
             <div className="p-8 space-y-8">
               {/* Stats Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {stats.map((stat, i) => (
-                  <div key={i} className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                    <div className={`${stat.badgeBg} rounded-lg p-3 mb-4 w-fit`}>
-                      <p className={`${stat.badgeText} text-xs font-semibold uppercase`}>{stat.label}</p>
-                    </div>
-                    <p className="text-3xl font-bold text-slate-900 mb-2">{stat.value}</p>
-                    <p className="text-xs text-slate-600 mb-1">{stat.detail}</p>
-                    <p className="text-xs text-slate-500">{stat.change}</p>
+                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                  <div className="bg-blue-50 rounded-lg p-3 mb-4 w-fit">
+                    <p className="text-blue-700 text-xs font-semibold uppercase">Assigned Courses</p>
                   </div>
-                ))}
+                  <p className="text-3xl font-bold text-slate-900 mb-2">{assignedCourses.length}</p>
+                  <p className="text-xs text-slate-600 mb-1">This semester</p>
+                  <p className="text-xs text-slate-500">Active sections</p>
+                </div>
+                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                  <div className="bg-sky-50 rounded-lg p-3 mb-4 w-fit">
+                    <p className="text-sky-700 text-xs font-semibold uppercase">Total Students</p>
+                  </div>
+                  <p className="text-3xl font-bold text-slate-900 mb-2">{totalStudents}</p>
+                  <p className="text-xs text-slate-600 mb-1">Across all sections</p>
+                  <p className="text-xs text-slate-500">Enrolled this semester</p>
+                </div>
+                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                  <div className="bg-emerald-50 rounded-lg p-3 mb-4 w-fit">
+                    <p className="text-emerald-700 text-xs font-semibold uppercase">Grades Submitted</p>
+                  </div>
+                  <p className="text-3xl font-bold text-slate-900 mb-2">82%</p>
+                  <p className="text-xs text-slate-600 mb-1">2 courses completed</p>
+                  <p className="text-xs text-slate-500">2 pending</p>
+                </div>
+                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                  <div className="bg-amber-50 rounded-lg p-3 mb-4 w-fit">
+                    <p className="text-amber-700 text-xs font-semibold uppercase">Attendance Rate</p>
+                  </div>
+                  <p className="text-3xl font-bold text-slate-900 mb-2">{attendanceRate}</p>
+                  <p className="text-xs text-slate-600 mb-1">Average across courses</p>
+                  <p className="text-xs text-slate-500">This semester</p>
+                </div>
               </div>
 
               {/* Welcome Message */}
@@ -177,74 +241,69 @@ export default function FacultyDashboard() {
                 {assignedCourses.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {assignedCourses.slice(0, 6).map((course) => (
-                      <div key={course.id} className="group bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200 rounded-xl p-6 hover:shadow-lg hover:border-blue-300 transition-all duration-300">
-                        {/* Course Header */}
-                        <div className="mb-4">
-                          <div className="flex items-start justify-between mb-2">
-                            <div>
-                              <h4 className="font-bold text-lg text-blue-600 mb-1">{course.courses?.course_code}</h4>
-                              <p className="text-sm text-slate-700 font-semibold">{course.courses?.name}</p>
+                      <div key={course.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-xl hover:border-[#8B3A3A]/30 transition-all duration-300">
+                        {/* Course Header with Accent */}
+                        <div className="bg-gradient-to-r from-[#8B3A3A] to-[#6B2A2A] px-6 py-4">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <h4 className="font-bold text-xl text-white mb-1">{course.courses?.course_code}</h4>
+                              <p className="text-sm text-white/90 font-medium">{course.courses?.name}</p>
                             </div>
-                            <div className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-semibold">
-                              Sec {course.section}
+                            <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full">
+                              <span className="text-xs font-bold text-white">Sec {course.section}</span>
                             </div>
                           </div>
                         </div>
 
-                        {/* Divider */}
-                        <div className="h-px bg-slate-300 mb-4"></div>
-
-                        {/* Course Details Grid */}
-                        <div className="space-y-3">
+                        {/* Course Details */}
+                        <div className="p-6 space-y-4">
                           {/* Time */}
-                          <div className="flex items-center gap-3">
-                            <div className="flex-shrink-0 bg-blue-100 rounded-lg p-2">
-                              <i className="bx bx-time text-lg text-blue-600"></i>
+                          <div className="flex items-start gap-3">
+                            <div className="flex-shrink-0 w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
+                              <i className="bx bx-time text-xl text-slate-600"></i>
                             </div>
-                            <div>
-                              <p className="text-xs text-slate-500 font-semibold uppercase">Time</p>
-                              <p className="text-sm text-slate-900 font-medium">{course.time_slot}</p>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-slate-500 font-semibold uppercase tracking-wide mb-1">Time</p>
+                              <p className="text-sm text-slate-900 font-semibold">{course.time_slot}</p>
                             </div>
                           </div>
 
                           {/* Days */}
-                          <div className="flex items-center gap-3">
-                            <div className="flex-shrink-0 bg-emerald-100 rounded-lg p-2">
-                              <i className="bx bx-calendar text-lg text-emerald-600"></i>
+                          <div className="flex items-start gap-3">
+                            <div className="flex-shrink-0 w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
+                              <i className="bx bx-calendar text-xl text-slate-600"></i>
                             </div>
-                            <div>
-                              <p className="text-xs text-slate-500 font-semibold uppercase">Days</p>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-slate-500 font-semibold uppercase tracking-wide mb-1">Days</p>
                               <p className="text-sm text-slate-900 font-medium">{course.day_slot}</p>
                             </div>
                           </div>
 
                           {/* Room */}
-                          <div className="flex items-center gap-3">
-                            <div className="flex-shrink-0 bg-amber-100 rounded-lg p-2">
-                              <i className="bx bx-building text-lg text-amber-600"></i>
+                          <div className="flex items-start gap-3">
+                            <div className="flex-shrink-0 w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
+                              <i className="bx bx-building text-xl text-slate-600"></i>
                             </div>
-                            <div>
-                              <p className="text-xs text-slate-500 font-semibold uppercase">Room</p>
-                              <p className="text-sm text-slate-900 font-medium">{course.room_no || "TBA"}</p>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-slate-500 font-semibold uppercase tracking-wide mb-1">Room</p>
+                              <p className="text-sm text-slate-900 font-semibold">{course.room_no || "TBA"}</p>
                             </div>
                           </div>
 
-                          {/* Enrollment */}
-                          <div className="flex items-center gap-3">
-                            <div className="flex-shrink-0 bg-purple-100 rounded-lg p-2">
-                              <i className="bx bx-user-check text-lg text-purple-600"></i>
+                          {/* Enrollment with maroon accent */}
+                          <div className="mt-4 pt-4 border-t border-slate-200">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <i className="bx bx-group text-lg text-[#8B3A3A]"></i>
+                                <span className="text-xs text-slate-500 font-semibold uppercase tracking-wide">Enrollment</span>
+                              </div>
+                              <span className="text-sm text-slate-700 font-bold">{course.filled_seats} / {course.seats}</span>
                             </div>
-                            <div className="flex-1">
-                              <p className="text-xs text-slate-500 font-semibold uppercase">Enrollment</p>
-                              <div className="flex items-center justify-between">
-                                <p className="text-sm text-slate-900 font-medium">{course.filled_seats} / {course.seats} students</p>
-                              </div>
-                              <div className="w-full bg-slate-300 rounded-full h-2 mt-1">
-                                <div 
-                                  className="h-2 rounded-full bg-gradient-to-r from-purple-500 to-purple-600"
-                                  style={{ width: `${course.seats ? (course.filled_seats / course.seats) * 100 : 0}%` }}
-                                ></div>
-                              </div>
+                            <div className="w-full bg-slate-200 rounded-full h-2">
+                              <div 
+                                className="h-2 rounded-full bg-gradient-to-r from-[#8B3A3A] to-[#6B2A2A]"
+                                style={{ width: `${course.seats ? (course.filled_seats / course.seats) * 100 : 0}%` }}
+                              ></div>
                             </div>
                           </div>
                         </div>

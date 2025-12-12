@@ -1,15 +1,17 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { supabase } from "../supabase";
+import AnnouncementsBlock from "../components/AnnouncementsBlock";
+import AssignmentsBlock from "../components/AssignmentsBlock";
+import MaterialsBlock from "../components/MaterialsBlock";
 
-export default function EnrolledClassesLMS() {
+export default function EnrolledClassesLMS({ selectedCourseCode }) {
   const [courses, setCourses] = useState([]);
   const [activeCourse, setActiveCourse] = useState(null);
   const [activeEnrollmentId, setActiveEnrollmentId] = useState(null);
   const [assignments, setAssignments] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [attendance, setAttendance] = useState(null);
-  const [announcements, setAnnouncements] = useState([]);
   const [classDetails, setClassDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [courseLoading, setCourseLoading] = useState(false);
@@ -67,11 +69,11 @@ export default function EnrolledClassesLMS() {
       console.log("Course classes:", courseClasses);
       setCourses(courseClasses);
       
-      // Check if a specific course was selected from navigation state
-      const selectedCourseCode = location.state?.selectedCourse;
-      if (selectedCourseCode) {
+      // Check if a specific course was selected from props or navigation state
+      const courseToSelect = selectedCourseCode || location.state?.selectedCourse;
+      if (courseToSelect) {
         const matchedCourse = courseClasses.find(
-          cc => cc.courses?.course_code === selectedCourseCode
+          cc => cc.courses?.course_code === courseToSelect
         );
         setActiveCourse(matchedCourse || courseClasses[0] || null);
         setActiveEnrollmentId(matchedCourse?.enrollmentId || courseClasses[0]?.enrollmentId || null);
@@ -92,14 +94,13 @@ export default function EnrolledClassesLMS() {
       // Small delay to show loading animation
       setTimeout(() => {
         fetchCourseData(activeCourse);
-        fetchAnnouncements(activeCourse.id);
+
         if (activeEnrollmentId) {
           fetchAttendance(activeEnrollmentId);
         }
         setCourseLoading(false);
       }, 300);
     } else {
-      setAnnouncements([]);
       setAttendance(null);
     }
   }, [activeCourse]);
@@ -161,26 +162,7 @@ export default function EnrolledClassesLMS() {
     }
   }
 
-  async function fetchAnnouncements(classId) {
-    try {
-      const { data, error } = await supabase
-        .from("announcements")
-        .select("*, users:user_id(full_name)")
-        .eq("class_id", classId)
-        .order("created_at", { ascending: false });
 
-      if (error) {
-        console.error("Announcements fetch error:", error);
-        setAnnouncements([]);
-        return;
-      }
-
-      setAnnouncements(data || []);
-    } catch (err) {
-      console.error("Announcements fetch exception:", err);
-      setAnnouncements([]);
-    }
-  }
 
   if (loading) {
     return <div className="p-6">Loading...</div>;
@@ -232,50 +214,22 @@ export default function EnrolledClassesLMS() {
         )}
         {/* Main Content */}
         <div className={`flex-1 p-8 transition-opacity duration-300 ${courseLoading ? 'opacity-50' : 'opacity-100'}`}>
-          {/* Stream (Announcements) */}
-          <section className="mb-8">
-            <h2 className="text-xl font-bold mb-4">Stream</h2>
-            <div className="space-y-4">
-              {announcements.length === 0 ? (
-                <div className="bg-gray-50 rounded-lg p-4 text-gray-600">No announcements yet.</div>
-              ) : (
-                announcements.map((item) => (
-                  <div
-                    key={item.id}
-                    className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="flex-shrink-0 bg-[#23336A]/10 rounded-full p-2">
-                        <i className="bx bx-user text-[#23336A] text-xl"></i>
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="font-semibold text-gray-900">
-                            {item.users?.full_name || "Faculty"}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            {new Date(item.created_at).toLocaleString()}
-                          </p>
-                        </div>
-                        <p className="text-gray-700 whitespace-pre-wrap">{item.content}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
+          {activeCourse ? (
+            <>
+              {/* Stream (Announcements) */}
+              <section className="mb-8">
+                <h2 className="text-xl font-bold mb-4">Stream</h2>
+                <AnnouncementsBlock courseClassId={activeCourse.id} isReadOnly={true} />
+              </section>
           {/* Assignments */}
           <section className="mb-8">
             <h2 className="text-xl font-bold mb-4">Assignments</h2>
-            {/* TODO: Render assignments */}
-            <div className="bg-gray-50 rounded-lg p-4">No assignments yet.</div>
+            <AssignmentsBlock courseClassId={activeCourse.id} isReadOnly={true} />
           </section>
           {/* Uploaded Materials */}
           <section className="mb-8">
             <h2 className="text-xl font-bold mb-4">Materials</h2>
-            {/* TODO: Render materials */}
-            <div className="bg-gray-50 rounded-lg p-4">No materials uploaded yet.</div>
+            <MaterialsBlock courseClassId={activeCourse.id} isReadOnly={true} />
           </section>
           {/* Attendance */}
           <section className="mb-8">
@@ -389,6 +343,12 @@ export default function EnrolledClassesLMS() {
               <div className="bg-gray-50 rounded-lg p-4 text-gray-600">Attendance data not available.</div>
             )}
           </section>
+            </>
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-gray-500">Select a course to view details</p>
+            </div>
+          )}
         </div>
         {/* Side Cards */}
         <aside className="w-80 bg-white border-l p-6 flex-shrink-0 overflow-y-auto">

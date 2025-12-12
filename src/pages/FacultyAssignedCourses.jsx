@@ -1,30 +1,90 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../supabase";
+import AnnouncementsBlock from "../components/AnnouncementsBlock";
+import AssignmentsBlock from "../components/AssignmentsBlock";
+import MaterialsBlock from "../components/MaterialsBlock";
 
-export default function FacultyAssignedCourses({ courses }) {
-  const [selectedCourse, setSelectedCourse] = useState(courses[0] || null);
+export default function FacultyAssignedCourses({ courses, selectedCourse, onCourseChange }) {
+  const [localSelected, setLocalSelected] = useState(selectedCourse || courses[0] || null);
   const [activeTab, setActiveTab] = useState("Stream");
   const [students, setStudents] = useState([]);
   const [grades, setGrades] = useState({});
-  const [announcements, setAnnouncements] = useState([]);
-  const [newAnnouncement, setNewAnnouncement] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [posting, setPosting] = useState(false);
   const [attendance, setAttendance] = useState([]);
   const [courseLoading, setCourseLoading] = useState(false);
+  const [attendanceData, setAttendanceData] = useState({}); // { enrollmentId: { class1: true/false/null, ... } }
+  const [classesCompleted, setClassesCompleted] = useState({}); // { class1: true/false, ... }
+
+  // Function to handle class header click - marks null values as false
+  const handleClassHeaderClick = async (classNum) => {
+    const classKey = `class${classNum}`;
+    
+    // Toggle the completed state
+    const newCompleted = !classesCompleted[classKey];
+    setClassesCompleted(prev => ({
+      ...prev,
+      [classKey]: newCompleted
+    }));
+
+    // If marking as completed (true), convert all nulls to false for that class in DB
+    if (newCompleted) {
+      try {
+        // Update database for all enrollments where class value is null
+        for (const enrollmentId of Object.keys(attendanceData)) {
+          const currentValue = attendanceData[enrollmentId][classKey];
+          
+          // Only update if null
+          if (currentValue === null) {
+            const { error } = await supabase
+              .from("attendance")
+              .update({ [classKey]: false })
+              .eq("enrollment_id", enrollmentId);
+
+            if (error) {
+              console.error("Error updating attendance:", error);
+            }
+          }
+        }
+
+        // Update local state
+        setAttendanceData(prev => {
+          const updated = { ...prev };
+          Object.keys(updated).forEach(enrollmentId => {
+            if (updated[enrollmentId][classKey] === null) {
+              updated[enrollmentId] = {
+                ...updated[enrollmentId],
+                [classKey]: false
+              };
+            }
+          });
+          return updated;
+        });
+      } catch (err) {
+        console.error("Error updating null values:", err);
+      }
+    }
+  };
+
+  // Use selectedCourse from props, fallback to local state
+  const currentCourse = selectedCourse || localSelected;
 
   useEffect(() => {
     if (selectedCourse) {
+      setLocalSelected(selectedCourse);
+    }
+  }, [selectedCourse]);
+
+  useEffect(() => {
+    if (currentCourse) {
       setCourseLoading(true);
       setTimeout(() => {
-        fetchStudents(selectedCourse);
-        fetchAnnouncements(selectedCourse.id);
-        fetchAttendance(selectedCourse.id);
+        fetchStudents(currentCourse);
+        fetchAttendanceDataForAll(currentCourse);
         setCourseLoading(false);
       }, 300);
     }
-  }, [selectedCourse]);
+  }, [currentCourse]);
 
   async function fetchAttendance(classId) {
     try {
@@ -43,6 +103,77 @@ export default function FacultyAssignedCourses({ courses }) {
     } catch (err) {
       console.error("Error fetching attendance:", err);
       setAttendance([]);
+    }
+  }
+
+  async function fetchAttendanceDataForAll(courseClass) {
+    try {
+      // Get all enrollments for this class
+      const { data: enrollments, error: enrollError } = await supabase
+        .from("enrollments")
+        .select("id, student_id")
+        .eq("class_id", courseClass.id);
+
+      if (enrollError || !enrollments) {
+        console.error("Error fetching enrollments:", enrollError);
+        return;
+      }
+
+      // Fetch attendance for all enrollments
+      const attendanceMap = {};
+      for (const enrollment of enrollments) {
+        const { data: attendanceRecord, error: attError } = await supabase
+          .from("attendance")
+          .select("*")
+          .eq("enrollment_id", enrollment.id)
+          .single();
+
+        if (!attError && attendanceRecord) {
+          attendanceMap[enrollment.id] = {
+            class1: attendanceRecord.class1,
+            class2: attendanceRecord.class2,
+            class3: attendanceRecord.class3,
+            class4: attendanceRecord.class4,
+            class5: attendanceRecord.class5,
+            class6: attendanceRecord.class6,
+            class7: attendanceRecord.class7,
+            class8: attendanceRecord.class8,
+            class9: attendanceRecord.class9,
+            class10: attendanceRecord.class10,
+            class11: attendanceRecord.class11,
+            class12: attendanceRecord.class12,
+          };
+        }
+      }
+      setAttendanceData(attendanceMap);
+    } catch (err) {
+      console.error("Error fetching attendance data:", err);
+    }
+  }
+
+  async function updateAttendance(enrollmentId, classNum, isPresent) {
+    try {
+      const columnName = `class${classNum}`;
+      const { error } = await supabase
+        .from("attendance")
+        .update({ [columnName]: isPresent })
+        .eq("enrollment_id", enrollmentId);
+
+      if (error) {
+        console.error("Error updating attendance:", error);
+        return;
+      }
+
+      // Update local state
+      setAttendanceData(prev => ({
+        ...prev,
+        [enrollmentId]: {
+          ...prev[enrollmentId],
+          [columnName]: isPresent
+        }
+      }));
+    } catch (err) {
+      console.error("Error updating attendance:", err);
     }
   }
 
@@ -155,76 +286,7 @@ export default function FacultyAssignedCourses({ courses }) {
     });
   };
 
-  async function fetchAnnouncements(classId) {
-    try {
-      const { data, error } = await supabase
-        .from("announcements")
-        .select("*, users:user_id(*)")
-        .eq("class_id", classId)
-        .order("created_at", { ascending: false });
 
-      if (error) {
-        console.error("Error fetching announcements:", error);
-        setAnnouncements([]);
-        return;
-      }
-
-      setAnnouncements(data || []);
-    } catch (err) {
-      console.error("Error fetching announcements:", err);
-      setAnnouncements([]);
-    }
-  }
-
-  async function postAnnouncement() {
-    if (!newAnnouncement.trim()) return;
-
-    setPosting(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.error("No authenticated user found for posting announcement");
-        return;
-      }
-
-      const { data: userData, error: userErr } = await supabase
-        .from("users")
-        .select("id")
-        .eq("email", user.email)
-        .single();
-
-      if (userErr || !userData) {
-        console.error("Error fetching user id for announcement:", userErr);
-        return;
-      }
-
-      const { data: inserted, error } = await supabase
-        .from("announcements")
-        .insert([
-          {
-            class_id: selectedCourse.id,
-            user_id: userData.id,
-            content: newAnnouncement,
-            created_at: new Date().toISOString(),
-          },
-        ])
-        .select("*, users:user_id(*)")
-        .single();
-
-      if (error) {
-        console.error("Error inserting announcement:", error);
-        return;
-      }
-
-      // Optimistically update stream for faculty; student view will pick it up on next fetch
-      setAnnouncements((prev) => [inserted, ...(prev || [])]);
-      setNewAnnouncement("");
-    } catch (err) {
-      console.error("Error posting announcement:", err);
-    } finally {
-      setPosting(false);
-    }
-  }
 
   return (
     <div className="flex-1 flex flex-col bg-gray-50">
@@ -242,78 +304,42 @@ export default function FacultyAssignedCourses({ courses }) {
             </div>
           )}
 
-          {/* Content Tabs */}
-          <div className="bg-gray-100 border-b border-gray-200">
-            <div className="flex gap-0 items-end px-6 pt-4">
-              {["Stream", "Students", "Grades", "Attendance"].map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-6 py-3 font-medium transition-all rounded-t-lg ${
-                    activeTab === tab
-                      ? "bg-white text-[#8B3A3A] border-t-2 border-[#8B3A3A] shadow-sm"
-                      : "bg-gray-50 text-gray-600 hover:text-gray-800 hover:bg-white border-b border-gray-300"
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Tab Content */}
-          <div className={`flex-1 p-8 transition-opacity duration-300 overflow-y-auto ${courseLoading ? 'opacity-50' : 'opacity-100'}`}>
-            {/* Stream Tab */}
-            {activeTab === "Stream" && (
-              <div className="space-y-6 max-w-3xl">
-                {/* Post Announcement */}
-                <div className="bg-white rounded-lg border border-gray-200 p-6">
-                  <textarea
-                    value={newAnnouncement}
-                    onChange={(e) => setNewAnnouncement(e.target.value)}
-                    placeholder="Share an announcement with your class..."
-                    className="w-full p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-[#8B3A3A]"
-                    rows="4"
-                  ></textarea>
-                  <div className="flex justify-end mt-4">
+          {currentCourse ? (
+            <>
+              {/* Content Tabs */}
+              <div className="bg-gray-100 border-b border-gray-200">
+                <div className="flex gap-0 items-end px-6 pt-4">
+                  {["Stream", "Assignments", "Materials", "Students", "Grades", "Attendance"].map((tab) => (
                     <button
-                      onClick={postAnnouncement}
-                      disabled={posting || !newAnnouncement.trim()}
-                      className="px-6 py-2 bg-[#8B3A3A] text-white rounded-lg font-semibold hover:bg-[#6B2A2A] disabled:bg-gray-400 transition"
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      className={`px-6 py-3 font-medium transition-all rounded-t-lg ${
+                        activeTab === tab
+                          ? "bg-white text-[#8B3A3A] border-t-2 border-[#8B3A3A] shadow-sm"
+                          : "bg-gray-50 text-gray-600 hover:text-gray-800 hover:bg-white border-b border-gray-300"
+                      }`}
                     >
-                      {posting ? "Posting..." : "Post"}
+                      {tab}
                     </button>
-                  </div>
-                </div>
-
-                {/* Announcements List */}
-                <div className="space-y-4">
-                  {announcements.length === 0 ? (
-                    <div className="bg-gray-50 rounded-lg p-8 text-center text-gray-500">No announcements yet</div>
-                  ) : (
-                    announcements.map((announcement) => (
-                      <div key={announcement.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm hover:shadow-md transition">
-                        <div className="flex items-start gap-3">
-                          <div className="flex-shrink-0 bg-[#8B3A3A]/10 rounded-full p-2">
-                            <i className="bx bx-user text-[#8B3A3A] text-xl"></i>
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-2">
-                              <p className="font-semibold text-gray-900">
-                                {announcement.users?.full_name || "Faculty"}
-                              </p>
-                              <p className="text-xs text-gray-500">
-                                {new Date(announcement.created_at).toLocaleString()}
-                              </p>
-                            </div>
-                            <p className="text-gray-700 whitespace-pre-wrap">{announcement.content}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
+                  ))}
                 </div>
               </div>
+
+              {/* Tab Content */}
+              <div className={`flex-1 p-8 transition-opacity duration-300 overflow-y-auto ${courseLoading ? 'opacity-50' : 'opacity-100'}`}>
+            {/* Stream Tab */}
+            {activeTab === "Stream" && (
+              <AnnouncementsBlock courseClassId={currentCourse.id} isReadOnly={false} />
+            )}
+
+            {/* Assignments Tab */}
+            {activeTab === "Assignments" && (
+              <AssignmentsBlock courseClassId={currentCourse.id} isReadOnly={false} />
+            )}
+
+            {/* Materials Tab */}
+            {activeTab === "Materials" && (
+              <MaterialsBlock courseClassId={currentCourse.id} isReadOnly={false} />
             )}
 
             {/* Students Tab */}
@@ -419,29 +445,67 @@ export default function FacultyAssignedCourses({ courses }) {
 
             {/* Attendance Tab */}
             {activeTab === "Attendance" && (
-              <div className="max-w-4xl">
+              <div className="max-w-full overflow-x-auto">
                 {loading ? (
                   <div className="text-center text-gray-600 py-8">Loading attendance...</div>
                 ) : students.length === 0 ? (
                   <div className="bg-gray-50 rounded-lg p-8 text-center text-gray-600">No students enrolled in this course.</div>
                 ) : (
                   <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
-                    <table className="w-full text-sm">
+                    <table className="w-full text-sm border-collapse">
                       <thead>
                         <tr className="bg-[#8B3A3A] text-white">
-                          <th className="px-6 py-4 text-left font-semibold">Student Code</th>
-                          <th className="px-6 py-4 text-left font-semibold">Name</th>
-                          <th className="px-6 py-4 text-left font-semibold">Attendance %</th>
+                          <th className="px-4 py-3 text-left font-semibold sticky left-0 bg-[#8B3A3A] min-w-[150px]">Student Code</th>
+                          <th className="px-4 py-3 text-left font-semibold sticky left-[150px] bg-[#8B3A3A] min-w-[180px]">Name</th>
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((classNum) => (
+                            <th 
+                              key={classNum} 
+                              className="px-3 py-3 text-center font-semibold min-w-[60px] cursor-pointer hover:bg-[#A94A4A] active:bg-[#6B2A2A] transition select-none"
+                              onClick={() => handleClassHeaderClick(classNum)}
+                              title="Click to mark class as completed and initialize attendance"
+                            >
+                              <div className="flex flex-col items-center gap-1">
+                                <span className="text-xs">Class {classNum}</span>
+                                <span className="text-xs font-medium opacity-70">
+                                  {classesCompleted[`class${classNum}`] ? "✓" : "○"}
+                                </span>
+                              </div>
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {students.map((student, idx) => (
-                          <tr key={student.enrollmentId} className={`border-t ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-gray-100 transition`}>
-                            <td className="px-6 py-4 text-gray-900 font-medium">{student.studentCode}</td>
-                            <td className="px-6 py-4 text-gray-900">{student.fullName}</td>
-                            <td className="px-6 py-4 text-gray-600">-</td>
-                          </tr>
-                        ))}
+                        {students.map((student, idx) => {
+                          const enrollmentAttendance = attendanceData[student.enrollmentId] || {};
+                          return (
+                            <tr key={student.enrollmentId} className={`border-t ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-blue-50 transition`}>
+                              <td className="px-4 py-3 text-gray-900 font-medium sticky left-0 bg-inherit">{student.studentCode}</td>
+                              <td className="px-4 py-3 text-gray-900 sticky left-[150px] bg-inherit">{student.fullName}</td>
+                              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((classNum) => {
+                                const classKey = `class${classNum}`;
+                                const attendanceValue = enrollmentAttendance[classKey];
+                                
+                                return (
+                                  <td key={classNum} className="px-3 py-3 text-center">
+                                    {attendanceValue === null ? (
+                                      // Null: empty cell
+                                      <div className="text-gray-300 text-lg">-</div>
+                                    ) : (
+                                      // True or False: checkbox
+                                      <input
+                                        type="checkbox"
+                                        checked={attendanceValue === true}
+                                        onChange={(e) => updateAttendance(student.enrollmentId, classNum, e.target.checked)}
+                                        className="w-4 h-4 cursor-pointer accent-green-600"
+                                        title={attendanceValue === true ? "Present" : "Absent"}
+                                      />
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -449,9 +513,16 @@ export default function FacultyAssignedCourses({ courses }) {
               </div>
             )}
           </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-center h-full w-full">
+              <p className="text-gray-500 text-lg">Select a course from the sidebar</p>
+            </div>
+          )}
         </div>
 
         {/* Right Sidebar - Course Details */}
+        {currentCourse && (
         <aside className="w-80 bg-white border-l border-gray-200 p-6 flex-shrink-0 overflow-y-auto">
           <div className="space-y-5">
             {/* Course Details Card */}
@@ -460,16 +531,16 @@ export default function FacultyAssignedCourses({ courses }) {
               <div className="space-y-3">
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Course Name</p>
-                  <p className="text-sm font-semibold text-gray-900">{selectedCourse.courses?.name}</p>
+                  <p className="text-sm font-semibold text-gray-900">{currentCourse.courses?.name}</p>
                 </div>
                 <div className="flex gap-3">
                   <div className="flex-1">
                     <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Course Code</p>
-                    <p className="text-sm font-semibold text-gray-900">{selectedCourse.courses?.course_code}</p>
+                    <p className="text-sm font-semibold text-gray-900">{currentCourse.courses?.course_code}</p>
                   </div>
                   <div className="flex-1">
                     <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Credits</p>
-                    <p className="text-sm font-semibold text-gray-900">{selectedCourse.courses?.credit}</p>
+                    <p className="text-sm font-semibold text-gray-900">{currentCourse.courses?.credit}</p>
                   </div>
                 </div>
               </div>
@@ -482,31 +553,31 @@ export default function FacultyAssignedCourses({ courses }) {
                 <div className="flex gap-3">
                   <div className="flex-1">
                     <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Section</p>
-                    <p className="text-sm font-semibold text-gray-900">{selectedCourse.section}</p>
+                    <p className="text-sm font-semibold text-gray-900">{currentCourse.section}</p>
                   </div>
                   <div className="flex-1">
                     <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Day Slot</p>
-                    <p className="text-sm font-semibold text-gray-900">{selectedCourse.day_slot}</p>
+                    <p className="text-sm font-semibold text-gray-900">{currentCourse.day_slot}</p>
                   </div>
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Time Slot</p>
-                  <p className="text-sm font-semibold text-gray-900">{selectedCourse.time_slot}</p>
+                  <p className="text-sm font-semibold text-gray-900">{currentCourse.time_slot}</p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Class Room</p>
-                  <p className="text-sm font-semibold text-gray-900">{selectedCourse.room_no || "TBA"}</p>
+                  <p className="text-sm font-semibold text-gray-900">{currentCourse.room_no || "TBA"}</p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Seats</p>
                   <div className="flex items-center justify-between text-sm mb-1">
                     <span className="text-gray-600">Enrollment</span>
-                    <span className="font-semibold text-gray-900">{selectedCourse.filled_seats} / {selectedCourse.seats}</span>
+                    <span className="font-semibold text-gray-900">{currentCourse.filled_seats} / {currentCourse.seats}</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div 
                       className="h-2 rounded-full bg-[#8B3A3A]"
-                      style={{ width: `${selectedCourse.seats ? (selectedCourse.filled_seats / selectedCourse.seats) * 100 : 0}%` }}
+                      style={{ width: `${currentCourse.seats ? (currentCourse.filled_seats / currentCourse.seats) * 100 : 0}%` }}
                     ></div>
                   </div>
                 </div>
@@ -527,16 +598,17 @@ export default function FacultyAssignedCourses({ courses }) {
                     <div className="flex-1 bg-white/20 rounded-full h-2">
                       <div 
                         className="h-2 rounded-full bg-white transition-all"
-                        style={{ width: `${selectedCourse.seats ? (selectedCourse.filled_seats / selectedCourse.seats) * 100 : 0}%` }}
+                        style={{ width: `${currentCourse.seats ? (currentCourse.filled_seats / currentCourse.seats) * 100 : 0}%` }}
                       ></div>
                     </div>
-                    <span className="text-sm font-semibold">{selectedCourse.seats ? Math.round((selectedCourse.filled_seats / selectedCourse.seats) * 100) : 0}%</span>
+                    <span className="text-sm font-semibold">{currentCourse.seats ? Math.round((currentCourse.filled_seats / currentCourse.seats) * 100) : 0}%</span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
         </aside>
+        )}
       </div>
     </div>
   );

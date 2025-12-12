@@ -4,10 +4,11 @@ import UserProfile from "../components/UserProfile";
 import Advising from "./Advising";
 import EnrolledClassesLMS from "./EnrolledClassesLMS";
 import ClassSchedule from "./ClassSchedule";
+import GradeReport from "./GradeReport";
 
-const stats = [
-  { label: "Current GPA", value: "3.82", detail: "Excellent standing", change: "+0.12 this term", badgeBg: "bg-blue-50", badgeText: "text-blue-700" },
-  { label: "Credits Earned", value: "82 / 120", detail: "6 courses in progress", change: "18 credits remaining", badgeBg: "bg-sky-50", badgeText: "text-sky-700" },
+const defaultStats = [
+  { label: "Current GPA", value: "—", detail: "Loading...", change: "", badgeBg: "bg-blue-50", badgeText: "text-blue-700" },
+  { label: "Credits Earned", value: "-- / 120", detail: "6 courses in progress", change: "", badgeBg: "bg-sky-50", badgeText: "text-sky-700" },
   { label: "Attendance", value: "94%", detail: "All classes on track", change: "+2.1% vs last month", badgeBg: "bg-emerald-50", badgeText: "text-emerald-700" },
   { label: "Fees", value: "Cleared", detail: "Next due Jan 15", change: "Receipt #34821", badgeBg: "bg-amber-50", badgeText: "text-amber-700" },
 ];
@@ -30,9 +31,12 @@ const sidebarItems = [
 
 export default function StudentDashboard() {
   const [activeMenu, setActiveMenu] = useState("Dashboard");
+  const [stats, setStats] = useState(defaultStats);
+  const [cgpa, setCgpa] = useState(null);
   const [enrolledSemester, setEnrolledSemester] = useState("");
   const [todaySchedule, setTodaySchedule] = useState([]);
   const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [selectedCourseCode, setSelectedCourseCode] = useState(null);
 
   useEffect(() => {
     async function loadSemesterName() {
@@ -52,7 +56,7 @@ export default function StudentDashboard() {
         .eq("email", authUser.email)
         .maybeSingle();
 
-      if (error || !data?.id) {
+      if (error  ||!data?.id) {
         console.error("Error fetching user data:", error);
         setEnrolledSemester("Not enrolled");
         return;
@@ -86,6 +90,99 @@ export default function StudentDashboard() {
       }
 
       setEnrolledSemester(semesterData.name);
+      
+      // Fetch CGPA from enrollments
+      await fetchCGPA(userId);
+    }
+
+    async function fetchCGPA(userId) {
+      try {
+        // Get current semester
+        const { data: cfg } = await supabase
+          .from("system_config")
+          .select("current_semester_id")
+          .eq("id", 1)
+          .maybeSingle();
+        let currentSemesterId = cfg?.current_semester_id || null;
+
+        // Fetch enrollments
+        const { data: enrollments } = await supabase
+          .from("enrollments")
+          .select(`
+            grade, class_id,
+            course_classes:class_id (
+              semester_id,
+              courses:course_id (credit)
+            )
+          `)
+          .eq("student_id", userId);
+
+        if (!enrollments || enrollments.length === 0) {
+          return;
+        }
+
+        // Filter out current semester and calculate CGPA
+        let totalGp = 0;
+        let totalCredits = 0;
+        enrollments.forEach(e => {
+          const semId = e?.course_classes?.semester_id;
+          if (semId && semId !== currentSemesterId) {
+            const gradePoint = typeof e.grade === "number" ? e.grade : (parseFloat(e.grade) || 0);
+            const credits = e.course_classes?.courses?.credit || 0;
+            const gp = gradePoint * credits;
+            totalGp += gp;
+            totalCredits += credits;
+          }
+        });
+
+        const cgpa = totalCredits > 0 ? totalGp / totalCredits : null;
+        
+        // Fetch attendance data
+        const { data: attendanceRecords } = await supabase
+          .from("attendance")
+          .select("*")
+          .in("enrollment_id", enrollments.map(e => e.class_id).filter(Boolean));
+
+        // Calculate attendance percentage
+        let totalClasses = 0;
+        let attendedClasses = 0;
+        
+        if (attendanceRecords && attendanceRecords.length > 0) {
+          attendanceRecords.forEach(record => {
+            // Count attendance fields (class_1 to class_45)
+            for (let i = 1; i <= 45; i++) {
+              const classField = `class_${i}`;
+              if (record[classField] !== null && record[classField] !== undefined) {
+                totalClasses++;
+                if (record[classField] === true || record[classField] === 1) {
+                  attendedClasses++;
+                }
+              }
+            }
+          });
+        }
+        
+        const attendancePercentage = totalClasses > 0 ? (attendedClasses / totalClasses) * 100 : null;
+        
+        // Update stats with actual CGPA, Credits, and Attendance
+        if (cgpa !== null) {
+          setCgpa(cgpa);
+          setStats(prev => [
+            { ...prev[0], value: cgpa.toFixed(2), detail: cgpa >= 3.5 ? "Excellent standing" : cgpa >= 3.0 ? "Good standing" : "Academic standing" },
+            { ...prev[1], value: `${totalCredits.toFixed(0)} / 140`, detail: totalCredits >= 140 ? "Completed" : `${(140 - totalCredits).toFixed(0)} credits remaining` },
+            { 
+              ...prev[2], 
+              value: attendancePercentage !== null ? `${attendancePercentage.toFixed(0)}%` : "—",
+              detail: attendancePercentage !== null 
+                ? (attendancePercentage >= 90 ? "Excellent attendance" : attendancePercentage >= 75 ? "Good attendance" : "Below minimum")
+                : "No data"
+            },
+            ...prev.slice(3)
+          ]);
+        }
+      } catch (err) {
+        console.error("Error fetching CGPA:", err);
+      }
     }
 
     loadSemesterName();
@@ -178,7 +275,7 @@ export default function StudentDashboard() {
              id,
              day_slot,
              time_slot,
-             room,
+             room_no,
              section,
              courses:course_id (name, course_code),
              faculty_user:faculty_id (full_name)
@@ -271,9 +368,14 @@ export default function StudentDashboard() {
           {activeMenu === "Advising" ? (
             <Advising />
           ) : activeMenu === "Enrolled Classes" ? (
-            <EnrolledClassesLMS />
+            <EnrolledClassesLMS selectedCourseCode={selectedCourseCode} />
           ) : activeMenu === "Class Schedule" ? (
-            <ClassSchedule />
+            <ClassSchedule onCourseSelect={(courseCode) => {
+              setSelectedCourseCode(courseCode);
+              setActiveMenu("Enrolled Classes");
+            }} />
+                  ) : activeMenu === "Grade Report" ? (
+                    <GradeReport />
           ) : (
             <div className="p-8">
               {/* Hero Section */}
@@ -294,7 +396,7 @@ export default function StudentDashboard() {
                     <p className="text-sm text-blue-200 mb-1">Enrolled</p>
                     <p className="text-2xl font-bold">{enrolledSemester || "Loading..."}</p>
                     <p className="text-xs text-blue-200 mt-3">CGPA</p>
-                    <p className="text-4xl font-bold mt-1">3.86</p>
+                    <p className="text-4xl font-bold mt-1">{cgpa !== null ? cgpa.toFixed(2) : "—"}</p>
                   </div>
                 </div>
               </div>
@@ -325,13 +427,12 @@ export default function StudentDashboard() {
                 {/* Right Sidebar - Schedule and Announcements */}
                 <div className="w-96 space-y-6">
                   {/* Today's Schedule */}
-                  <div className="rounded-3xl border border-white/60 bg-white/80 p-6 shadow-lg backdrop-blur">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wider text-brandButton">Today</p>
-                        <h3 className="text-xl font-bold text-slate-900">Schedule</h3>
-                      </div>
-                      <button className="text-xs font-semibold text-brandButton hover:text-menuHover">View week</button>
+                  <div className="rounded-3xl border border-white/60 bg-white/80 p-6 shadow-lg backdrop-blur flex flex-col">
+                    <div className="mb-4">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-brandButton">Today</p>
+                      <h3 className="text-xl font-bold text-slate-900">
+                        {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                      </h3>
                     </div>
                     <div className="space-y-3">
                         {scheduleLoading ? (
@@ -362,6 +463,9 @@ export default function StudentDashboard() {
                             </div>
                           ))
                         )}
+                    </div>
+                    <div className="mt-4 pt-4 border-t border-slate-100 flex justify-center">
+                      <button onClick={() => setActiveMenu("Class Schedule")} className="text-xs font-semibold text-brandButton hover:text-menuHover">View week</button>
                     </div>
                   </div>
 
