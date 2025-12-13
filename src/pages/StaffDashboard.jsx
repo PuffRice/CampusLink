@@ -4,12 +4,14 @@ import AddStudent from "./AddStudent";
 import AddFaculty from "./AddFaculty";
 import CourseClasses from "./CourseClasses";
 import SystemConfig from "./SystemConfig";
+import ServiceRequestManagement from "../components/ServiceRequestManagement";
 import UserProfile from "../components/UserProfile";
 
 export default function StaffDashboard() {
   const [activeOption, setActiveOption] = useState("dashboard");
   const [userName, setUserName] = useState("");
   const [userId, setUserId] = useState("");
+  const [userRole, setUserRole] = useState("");
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalFaculty: 0,
@@ -32,6 +34,7 @@ export default function StaffDashboard() {
   function handleUserDataFetch(data) {
     setUserName(data.userName);
     setUserId(data.userId);
+    setUserRole(data.userRole);
   }
 
   async function fetchDashboardStats() {
@@ -151,6 +154,8 @@ export default function StaffDashboard() {
         return <CourseClasses />;
       case "config":
         return <SystemConfig />;
+      case "service-requests":
+        return <ServiceRequestManagement />;
       case "dashboard":
       default:
         return (
@@ -329,30 +334,37 @@ export default function StaffDashboard() {
             Dashboard
           </button>
 
-          <button
-            onClick={() => setActiveOption("student")}
-            className={`px-4 py-3 rounded transition text-left ${
-              activeOption === "student"
-                ? "bg-brandButton"
-                : "bg-menuBg hover:bg-menuHover"
-            }`}
-          >
-            <i className="bx bxs-user-plus text-lg mr-2 align-middle" aria-hidden="true"></i>
-            Add Student
-          </button>
+          {/* Admin Only: Add Student */}
+          {userRole === "admin" && (
+            <button
+              onClick={() => setActiveOption("student")}
+              className={`px-4 py-3 rounded transition text-left ${
+                activeOption === "student"
+                  ? "bg-brandButton"
+                  : "bg-menuBg hover:bg-menuHover"
+              }`}
+            >
+              <i className="bx bxs-user-plus text-lg mr-2 align-middle" aria-hidden="true"></i>
+              Add Student
+            </button>
+          )}
 
-          <button
-            onClick={() => setActiveOption("faculty")}
-            className={`px-4 py-3 rounded transition text-left ${
-              activeOption === "faculty"
-                ? "bg-brandButton"
-                : "bg-menuBg hover:bg-menuHover"
-            }`}
-          >
-            <i className="bx bxs-user-check text-lg mr-2 align-middle" aria-hidden="true"></i>
-            Add Faculty
-          </button>
+          {/* Admin Only: Add Faculty */}
+          {userRole === "admin" && (
+            <button
+              onClick={() => setActiveOption("faculty")}
+              className={`px-4 py-3 rounded transition text-left ${
+                activeOption === "faculty"
+                  ? "bg-brandButton"
+                  : "bg-menuBg hover:bg-menuHover"
+              }`}
+            >
+              <i className="bx bxs-user-check text-lg mr-2 align-middle" aria-hidden="true"></i>
+              Add Faculty
+            </button>
+          )}
 
+          {/* Staff & Admin: Course Classes */}
           <button
             onClick={() => setActiveOption("classes")}
             className={`px-4 py-3 rounded transition text-left ${
@@ -365,16 +377,32 @@ export default function StaffDashboard() {
             Course Classes
           </button>
 
+          {/* Admin Only: System Config */}
+          {userRole === "admin" && (
+            <button
+              onClick={() => setActiveOption("config")}
+              className={`px-4 py-3 rounded transition text-left ${
+                activeOption === "config"
+                  ? "bg-brandButton"
+                  : "bg-menuBg hover:bg-menuHover"
+              }`}
+            >
+              <i className="bx bxs-cog text-lg mr-2 align-middle" aria-hidden="true"></i>
+              System Config
+            </button>
+          )}
+
+          {/* Staff & Admin: Service Requests */}
           <button
-            onClick={() => setActiveOption("config")}
+            onClick={() => setActiveOption("service-requests")}
             className={`px-4 py-3 rounded transition text-left ${
-              activeOption === "config"
+              activeOption === "service-requests"
                 ? "bg-brandButton"
                 : "bg-menuBg hover:bg-menuHover"
             }`}
           >
-            <i className="bx bxs-cog text-lg mr-2 align-middle" aria-hidden="true"></i>
-            System Config
+            <i className="bx bxs-file text-lg mr-2 align-middle" aria-hidden="true"></i>
+            Service Requests
           </button>
         </nav>
       </div>

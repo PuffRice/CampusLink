@@ -6,6 +6,7 @@ export default function UserProfile({ onUserDataFetch }) {
   const [isOpen, setIsOpen] = useState(false);
   const [userName, setUserName] = useState("");
   const [userId, setUserId] = useState("");
+  const [userRole, setUserRole] = useState("");
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
 
@@ -31,6 +32,7 @@ export default function UserProfile({ onUserDataFetch }) {
         .from("users")
         .select(`
           full_name,
+          role,
           staff:staff!user_id(staff_code)
         `)
         .eq("email", user.email)
@@ -48,9 +50,10 @@ export default function UserProfile({ onUserDataFetch }) {
         // Supabase join returns either a single object or array; handle both safely
         const staffCode = data.staff?.staff_code || data.staff?.[0]?.staff_code || "";
         setUserId(staffCode);
+        setUserRole(data.role || "");
 
         if (onUserDataFetch) {
-          onUserDataFetch({ userName: name, userId: staffCode });
+          onUserDataFetch({ userName: name, userId: staffCode, userRole: data.role });
         }
       }
     }

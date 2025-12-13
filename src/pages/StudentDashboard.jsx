@@ -5,6 +5,7 @@ import Advising from "./Advising";
 import EnrolledClassesLMS from "./EnrolledClassesLMS";
 import ClassSchedule from "./ClassSchedule";
 import GradeReport from "./GradeReport";
+import ServiceRequest from "../components/ServiceRequest";
 
 const defaultStats = [
   { label: "Current GPA", value: "—", detail: "Loading...", change: "", badgeBg: "bg-blue-50", badgeText: "text-blue-700" },
@@ -24,9 +25,8 @@ const sidebarItems = [
   { icon: "bx-user-check", label: "Advising" },
   { icon: "bx-book", label: "Enrolled Classes" },
   { icon: "bx-time-five", label: "Class Schedule" },
-  { icon: "bx-file", label: "Support Tickets" },
+  { icon: "bx-file", label: "Service Requests" },
   { icon: "bx-file", label: "Grade Report" },
- // { icon: "bx-spreadsheet", label: "Accounts Ledger" },
 ];
 
 export default function StudentDashboard() {
@@ -41,6 +41,7 @@ export default function StudentDashboard() {
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [departmentName, setDepartmentName] = useState("");
   const [departmentLoaded, setDepartmentLoaded] = useState(false);
+  const [userName, setUserName] = useState("");
 
   useEffect(() => {
     async function loadSemesterName() {
@@ -67,6 +68,17 @@ export default function StudentDashboard() {
       }
 
       const userId = data.id;
+
+      // Get user's full name
+      const { data: userData } = await supabase
+        .from("users")
+        .select("full_name")
+        .eq("id", userId)
+        .maybeSingle();
+      
+      if (userData?.full_name) {
+        setUserName(userData.full_name);
+      }
 
       // Get student's department
       const { data: studentData, error: studentError } = await supabase
@@ -489,8 +501,10 @@ export default function StudentDashboard() {
               setSelectedCourseCode(courseCode);
               setActiveMenu("Enrolled Classes");
             }} />
-                  ) : activeMenu === "Grade Report" ? (
-                    <GradeReport />
+          ) : activeMenu === "Service Requests" ? (
+            <ServiceRequest userRole="student" />
+          ) : activeMenu === "Grade Report" ? (
+            <GradeReport />
           ) : (
             <div className="p-8">
               {/* Hero Section */}
@@ -501,7 +515,7 @@ export default function StudentDashboard() {
                 </div>
                 <div className="relative z-10 flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-semibold mb-2 text-blue-200">Welcome, Md. Rashid</p>
+                    <p className="text-sm font-semibold mb-2 text-blue-200">Welcome, {userName || "Student"}</p>
                     <h2 className="text-3xl font-bold mb-1">{departmentLoaded ? (departmentName ? `Department of ${departmentName}` : "Department not set") : "Loading..."}</h2>
                     <div className="inline-block bg-white/20 backdrop-blur-sm rounded-full px-4 py-2 mt-4">
                       <span className="text-sm font-semibold">BSc. in CSE</span>

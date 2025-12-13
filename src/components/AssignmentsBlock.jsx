@@ -12,6 +12,9 @@ export default function AssignmentsBlock({ courseClassId, isReadOnly = false }) 
   const [posting, setPosting] = useState(false);
   const [userRole, setUserRole] = useState(null);
   const [submittingId, setSubmittingId] = useState(null);
+  const [submissionFiles, setSubmissionFiles] = useState({});
+  const [studentSubmissions, setStudentSubmissions] = useState({});
+  const [currentUserId, setCurrentUserId] = useState(null);
 
   useEffect(() => {
     fetchAssignments();
@@ -27,9 +30,38 @@ export default function AssignmentsBlock({ courseClassId, isReadOnly = false }) 
         .select("id, role")
         .eq("email", user.email)
         .single();
-      if (!error && data) setUserRole(data.role);
+      if (!error && data) {
+        setUserRole(data.role);
+        setCurrentUserId(data.id);
+        // Fetch student submissions for this user
+        if (data.role === 'student') {
+          fetchStudentSubmissions(data.id);
+        }
+      }
     } catch (e) {
       console.error("Error fetching user role", e);
+    }
+  }
+
+  async function fetchStudentSubmissions(userId) {
+    try {
+      const { data, error } = await supabase
+        .from("submissions")
+        .select("*")
+        .eq("student_id", userId);
+
+      if (!error && data) {
+        const submissionsByAssignment = {};
+        data.forEach(sub => {
+          if (!submissionsByAssignment[sub.assignment_id]) {
+            submissionsByAssignment[sub.assignment_id] = [];
+          }
+          submissionsByAssignment[sub.assignment_id].push(sub);
+        });
+        setStudentSubmissions(submissionsByAssignment);
+      }
+    } catch (e) {
+      console.error("Error fetching student submissions:", e);
     }
   }
 
@@ -109,11 +141,48 @@ export default function AssignmentsBlock({ courseClassId, isReadOnly = false }) 
         console.error("Error inserting submission:", insertErr);
         return;
       }
-      // Optionally refetch to show submission status later
+      // Refetch submissions to update UI
+      if (currentUserId) {
+        await fetchStudentSubmissions(currentUserId);
+      }
+      // Clear the submission file input
+      setSubmissionFiles({ ...submissionFiles, [assignment.id]: null });
     } catch (e) {
       console.error("Error submitting assignment:", e);
     } finally {
       setSubmittingId(null);
+    }
+  }
+
+  async function deleteSubmission(submissionId, assignmentId) {
+    try {
+      const submission = studentSubmissions[assignmentId]?.find(s => s.id === submissionId);
+      if (!submission) return;
+
+      // Delete file from storage
+      if (submission.file_url) {
+        const urlParts = submission.file_url.split('/');
+        const filePath = urlParts.slice(-3).join('/'); // Get path from URL
+        await supabase.storage.from("course-files").remove([filePath]);
+      }
+
+      // Delete submission record
+      const { error } = await supabase
+        .from("submissions")
+        .delete()
+        .eq("id", submissionId);
+
+      if (error) {
+        console.error("Error deleting submission:", error);
+        return;
+      }
+
+      // Refetch submissions
+      if (currentUserId) {
+        await fetchStudentSubmissions(currentUserId);
+      }
+    } catch (e) {
+      console.error("Error deleting submission:", e);
     }
   }
 
@@ -348,19 +417,52 @@ export default function AssignmentsBlock({ courseClassId, isReadOnly = false }) 
                 {userRole === 'student' && (
                   <div className="mt-4 pt-4 border-t border-gray-200">
                     <label className="block text-sm font-semibold text-gray-700 mb-2">Submit your work</label>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 mb-4">
                       <input
                         type="file"
-                        onChange={(e) => submitAssignmentFile(assignment, e.target.files[0])}
+                        onChange={(e) => setSubmissionFiles({ ...submissionFiles, [assignment.id]: e.target.files[0] })}
                         className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#8B3A3A]"
                       />
                       <button
-                        disabled={submittingId === assignment.id}
-                        className="px-4 py-2 bg-[#8B3A3A] text-white rounded-lg font-semibold hover:bg-[#6B2A2A] disabled:bg-gray-400 transition"
+                        onClick={() => submitAssignmentFile(assignment, submissionFiles[assignment.id])}
+                        disabled={submittingId === assignment.id || !submissionFiles[assignment.id]}
+                        className="px-4 py-2 bg-[#8B3A3A] text-white rounded-lg font-semibold hover:bg-[#6B2A2A] disabled:bg-gray-400 transition whitespace-nowrap"
                       >
                         {submittingId === assignment.id ? 'Submitting...' : 'Upload'}
                       </button>
                     </div>
+
+                    {studentSubmissions[assignment.id] && studentSubmissions[assignment.id].length > 0 && (
+                      <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                        <h4 className="font-semibold text-gray-900 mb-3 text-sm">Your Submissions ({studentSubmissions[assignment.id].length})</h4>
+                        <div className="space-y-2">
+                          {studentSubmissions[assignment.id].map((submission) => (
+                            <div key={submission.id} className="flex items-center justify-between bg-white p-3 rounded border border-gray-200">
+                              <div className="flex-1 min-w-0">
+                                <a
+                                  href={submission.file_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm font-medium text-[#8B3A3A] hover:text-[#6B2A2A] truncate flex items-center gap-2"
+                                >
+                                  <i className="bx bx-file"></i>
+                                  <span className="truncate">{submission.file_url.split('/').pop()}</span>
+                                </a>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {new Date(submission.submitted_at || submission.created_at).toLocaleString()}
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => deleteSubmission(submission.id, assignment.id)}
+                                className="ml-2 px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition flex-shrink-0"
+                              >
+                                <i className="bx bx-trash"></i>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

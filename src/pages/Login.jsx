@@ -62,7 +62,7 @@ export default function Login() {
 
     switch (profile.role) {
       case "admin":
-        window.location.href = "/admin";
+        window.location.href = "/staff";
         break;
       case "staff":
         window.location.href = "/staff";

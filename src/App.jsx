@@ -1,10 +1,8 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Login from "./pages/Login";
 import ChangePassword from "./pages/ChangePassword";
-import Dashboard from "./pages/Dashboard";
 import StudentDashboard from "./pages/StudentDashboard";
 import FacultyDashboard from "./pages/FacultyDashboard";
-import AdminDashboard from "./pages/AdminDashboard";
 import StaffDashboard from "./pages/StaffDashboard";
 import AddFaculty from "./pages/AddFaculty";
 import AddStudent from "./pages/AddStudent";
@@ -23,15 +21,6 @@ function App() {
 
         <Route path="/" element={<Login />} />
         <Route path="/change-password" element={<ChangePassword />} />
-
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          }
-        />
 
         <Route
           path="/staff/add-faculty"
@@ -94,15 +83,6 @@ function App() {
           element={
             <ProtectedRoute>
               <FacultyDashboard />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/admin"
-          element={
-            <ProtectedRoute>
-              <AdminDashboard />
             </ProtectedRoute>
           }
         />
