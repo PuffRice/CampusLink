@@ -63,6 +63,37 @@ export default function ServiceRequest({ userRole = "student" }) {
   async function fetchRequests() {
     setLoading(true);
     try {
+      let studentUserId = currentUserId;
+
+      // Ensure we have a student id before querying
+      if (userRole === "student") {
+        if (!studentUserId) {
+          const { data: authData } = await supabase.auth.getUser();
+          const authUser = authData?.user;
+          if (!authUser?.email) {
+            setRequests([]);
+            setLoading(false);
+            return;
+          }
+
+          const { data: userRow, error: userErr } = await supabase
+            .from("users")
+            .select("id")
+            .eq("email", authUser.email)
+            .maybeSingle();
+
+          if (userErr || !userRow?.id) {
+            console.error("Error resolving user id in fetchRequests", userErr);
+            setRequests([]);
+            setLoading(false);
+            return;
+          }
+
+          studentUserId = userRow.id;
+          setCurrentUserId(userRow.id);
+        }
+      }
+
       let query = supabase
         .from("service_requests")
         .select("*, users(full_name, email)")
@@ -70,12 +101,7 @@ export default function ServiceRequest({ userRole = "student" }) {
 
       // Students see only their own requests
       if (userRole === "student") {
-        if (!currentUserId) {
-          setRequests([]);
-          setLoading(false);
-          return;
-        }
-        query = query.eq("user_id", currentUserId);
+        query = query.eq("user_id", studentUserId);
       }
       // Staff/Admin see all requests
 
