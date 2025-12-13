@@ -32,8 +32,13 @@ export default function ServiceRequest({ userRole = "student" }) {
 
   useEffect(() => {
     fetchUserInfo();
-    fetchRequests();
   }, []);
+
+  useEffect(() => {
+    // For students, wait until we know their user id; for staff/admin fetch immediately
+    if (userRole === "student" && !currentUserId) return;
+    fetchRequests();
+  }, [userRole, currentUserId]);
 
   async function fetchUserInfo() {
     try {
@@ -65,6 +70,11 @@ export default function ServiceRequest({ userRole = "student" }) {
 
       // Students see only their own requests
       if (userRole === "student") {
+        if (!currentUserId) {
+          setRequests([]);
+          setLoading(false);
+          return;
+        }
         query = query.eq("user_id", currentUserId);
       }
       // Staff/Admin see all requests
