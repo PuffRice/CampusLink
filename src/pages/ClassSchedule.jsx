@@ -47,13 +47,15 @@ export default function ClassSchedule({ onCourseSelect }) {
     return null;
   }
 
-  function formatTime(minutes) {
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    const period = h >= 12 ? "PM" : "AM";
-    const hour = h % 12 || 12;
-    return `${hour}:${m.toString().padStart(2, "0")}${period}`;
-  }
+  const slots = [
+    { label: "8:30 - 10:00", start: toMinutes("8:30"), end: toMinutes("10:00") },
+    { label: "10:10 - 11:40", start: toMinutes("10:10"), end: toMinutes("11:40") },
+    { label: "11:50 - 1:20", start: toMinutes("11:50"), end: toMinutes("13:20") },
+    { label: "1:30 - 3:00", start: toMinutes("13:30"), end: toMinutes("15:00") },
+    { label: "3:00 - 4:40", start: toMinutes("15:00"), end: toMinutes("16:40") },
+    { label: "4:50 - 6:20", start: toMinutes("16:50"), end: toMinutes("18:20") },
+    { label: "6:30 - 7:50", start: toMinutes("18:30"), end: toMinutes("19:50") },
+  ];
 
   const baseDayNames = { S: "Sun", M: "Mon", T: "Tue", W: "Wed", R: "Thu" };
 
@@ -87,57 +89,42 @@ export default function ClassSchedule({ onCourseSelect }) {
     return days;
   }
 
-  function generateRoutineTable(classesArray) {
+  function buildTable(classesArray) {
     const dayOrder = ["Sun", "Mon", "Tue", "Wed", "Thu"];
-    const days = dayOrder;
+    return dayOrder.map((day) => {
+      const dayClasses = classesArray.filter((c) => getDaysForSlot(c.day).includes(day));
+      const used = new Set();
+      const cells = [];
+      let i = 0;
 
-    let allTimes = [];
-    classesArray.forEach((c) => {
-      allTimes.push(c.startMin);
-      allTimes.push(c.endMin);
-    });
-    allTimes = [...new Set(allTimes)].sort((a, b) => a - b);
-
-    const rows = [];
-    const occupied = {};
-
-    for (let i = 0; i < allTimes.length - 1; i++) {
-      const start = allTimes[i];
-      let row = {
-        timeSlot: `${formatTime(start)} - ${formatTime(allTimes[i + 1])}`,
-        cells: {},
-      };
-
-      days.forEach((d) => {
-        if (occupied[`${i}-${d}`]) {
-          // Mark as undefined so it won't render a <td>
-          row.cells[d] = undefined;
-          return;
-        }
-        
-        // Find class whose day mapping includes this day and this row is within its time window
-        const cls = classesArray.find((c) => {
-          const courseDays = getDaysForSlot(c.day);
-          const isDayMatch = courseDays.includes(d);
-          const isStartRow = c.startMin === start;
-          return isDayMatch && isStartRow;
+      while (i < slots.length) {
+        const slot = slots[i];
+        const cls = dayClasses.find((c) => {
+          const key = `${c.course}-${c.startMin}-${c.endMin}-${c.day}`;
+          return !used.has(key) && c.startMin < slot.end && c.endMin > slot.start;
         });
 
         if (cls) {
           let span = 0;
-          for (let k = i; k < allTimes.length - 1; k++) {
-            if (allTimes[k] >= cls.endMin) break;
+          while (
+            i + span < slots.length &&
+            cls.startMin < slots[i + span].end &&
+            cls.endMin > slots[i + span].start
+          ) {
             span++;
           }
-          row.cells[d] = { content: cls, rowSpan: span };
-          for (let k = i + 1; k < i + span; k++) occupied[`${k}-${d}`] = true;
+          const key = `${cls.course}-${cls.startMin}-${cls.endMin}-${cls.day}`;
+          used.add(key);
+          cells.push({ type: "class", colSpan: span, content: cls });
+          i += span;
         } else {
-          row.cells[d] = null;
+          cells.push({ type: "empty", colSpan: 1 });
+          i += 1;
         }
-      });
-      rows.push(row);
-    }
-    return { rows, days };
+      }
+
+      return { day, cells };
+    });
   }
 
   async function fetchClassSchedule() {
@@ -214,6 +201,7 @@ export default function ClassSchedule({ onCourseSelect }) {
             day: courseClass.day_slot,
             startMin,
             endMin,
+            timeSlot: courseClass.time_slot, // Add this line
           };
         })
         .filter(Boolean);
@@ -251,9 +239,7 @@ export default function ClassSchedule({ onCourseSelect }) {
     return <div className="p-6">Loading...</div>;
   }
 
-  const tableData = classes.length > 0 ? generateRoutineTable(classes) : { rows: [], days: [] };
-  const rows = tableData.rows;
-  const days = tableData.days;
+  const dayRows = classes.length > 0 ? buildTable(classes) : [];
 
   return (
     <>
@@ -280,7 +266,7 @@ export default function ClassSchedule({ onCourseSelect }) {
             border-collapse: collapse;
           }
           .print-schedule th, .print-schedule td {
-            border: 1px solid #000 !important;
+            border: 1.25px solid #23336A !important;
             padding: 8px !important;
             text-align: center;
           }
@@ -330,57 +316,44 @@ export default function ClassSchedule({ onCourseSelect }) {
           <table className="w-full border-collapse">
             <thead>
               <tr className="bg-[#23336A]">
-                <th className="px-6 py-4 text-left font-semibold text-white border-b-2 border-[#23336A]">Time</th>
-                {days.map((day) => (
-                  <th key={day} className="px-6 py-4 text-center font-semibold text-white border-b-2 border-[#23336A]">
-                    {day}
+                <th className="px-6 py-4 text-left font-semibold text-white border-b-2 border-[#23336A]">Day</th>
+                {slots.map((slot) => (
+                  <th key={slot.label} className="px-4 py-3 text-center font-semibold text-white border-b-2 border-[#23336A]">
+                    {slot.label}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-            {rows.map((row, rowIndex) => {
-              // Check if any cell in this row has the hovered course
-              const hasHoveredCourse = hoveredCourse && days.some(day => {
-                const cell = row.cells[day];
-                return cell?.content?.course === hoveredCourse;
-              });
-              
-              return (
-                <tr key={rowIndex} className={`${rowIndex % 2 === 0 ? "bg-white" : "bg-blue-50"} ${hasHoveredCourse ? 'bg-blue-200' : ''} transition-colors duration-150`}>
-                  <td className="px-6 py-4 font-medium text-gray-800 whitespace-nowrap align-top border-b border-gray-200">
-                    {row.timeSlot}
+              {dayRows.map((row, rowIndex) => (
+                <tr key={row.day} className={`${rowIndex % 2 === 0 ? "bg-white" : "bg-blue-50"} transition-colors duration-150`}>
+                  <td className="px-6 py-4 font-bold text-gray-800 whitespace-nowrap align-top border-b border-gray-200">
+                    {row.day}
                   </td>
-                  {days.map((day) => {
-                    const cell = row.cells[day];
-                    // Skip rendering if cell is undefined (occupied by rowSpan from above)
-                    if (cell === undefined) return null;
-                    
-                    return (
-                      <td 
-                        key={`${rowIndex}-${day}`} 
-                        className={`px-4 py-3 text-center align-middle border-b border-l border-gray-200 transition-all duration-150 ${cell?.content ? 'cursor-pointer group' : ''}`}
-                        rowSpan={cell?.rowSpan || 1}
-                        onMouseEnter={() => cell?.content && setHoveredCourse(cell.content.course)}
-                        onMouseLeave={() => setHoveredCourse(null)}
-                        onClick={() => cell?.content && handleCourseClick(cell.content.course)}
-                      >
-                        {cell?.content ? (
-                          <div className="flex flex-col items-center justify-center py-2 h-full">
-                            <div className="font-bold text-[#23336A] text-base mb-1">{cell.content.course}</div>
-                            <div className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded group-hover:bg-white transition-colors">{cell.content.room}</div>
-                          </div>
-                        ) : (
-                          <span className="text-gray-300">—</span>
-                        )}
-                      </td>
-                    );
-                  })}
+                  {row.cells.map((cell, idx) => (
+                    <td
+                      key={`${row.day}-${idx}`}
+                      colSpan={cell.colSpan}
+                      className={`px-4 py-3 text-center align-middle border-b border-l border-gray-200 transition-all duration-150 ${cell.type === "class" ? "cursor-pointer group" : ""}`}
+                      onMouseEnter={() => cell.type === "class" && setHoveredCourse(cell.content.course)}
+                      onMouseLeave={() => setHoveredCourse(null)}
+                      onClick={() => cell.type === "class" && handleCourseClick(cell.content.course)}
+                    >
+                      {cell.type === "class" ? (
+                        <div className="flex flex-col items-center justify-center py-2 h-full">
+                          <div className="font-bold text-[#23336A] text-base mb-1">{cell.content.course}</div>
+                          <div className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded group-hover:bg-white transition-colors">{cell.content.room}</div>
+                          <div className="text-xs text-gray-500 mt-1 font-bold">{cell.content.timeSlot || (cell.content.startMin !== undefined && cell.content.endMin !== undefined ? `${formatTime(cell.content.startMin)} - ${formatTime(cell.content.endMin)}` : "")}</div>
+                        </div>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
+                  ))}
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

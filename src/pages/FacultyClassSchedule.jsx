@@ -11,6 +11,7 @@ export default function FacultyClassSchedule() {
   const [ohStart, setOhStart] = useState("");
   const [ohEnd, setOhEnd] = useState("");
   const [facultyInfo, setFacultyInfo] = useState({ full_name: "", position: "", email: "", department_name: "" });
+  const [hoveredOfficeHourId, setHoveredOfficeHourId] = useState(null);
 
   useEffect(() => {
     fetchClassSchedule();
@@ -61,20 +62,21 @@ export default function FacultyClassSchedule() {
     return null;
   }
 
-  function formatTime(minutes) {
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    const period = h >= 12 ? "PM" : "AM";
-    const hour = h % 12 || 12;
-    return `${hour}:${m.toString().padStart(2, "0")}${period}`;
-  }
+  const slots = [
+    { label: "8:30 - 10:00", start: toMinutes("8:30"), end: toMinutes("10:00") },
+    { label: "10:10 - 11:40", start: toMinutes("10:10"), end: toMinutes("11:40") },
+    { label: "11:50 - 1:20", start: toMinutes("11:50"), end: toMinutes("13:20") },
+    { label: "1:30 - 3:00", start: toMinutes("13:30"), end: toMinutes("15:00") },
+    { label: "3:00 - 4:40", start: toMinutes("15:00"), end: toMinutes("16:40") },
+    { label: "4:50 - 6:20", start: toMinutes("16:50"), end: toMinutes("18:20") },
+    { label: "6:30 - 7:50", start: toMinutes("18:30"), end: toMinutes("19:50") },
+  ];
 
-  function generateRoutineTable(classesArray, officeHoursArray) {
+  function buildTable(classesArray, officeHoursArray) {
     const dayOrder = ["Sun", "Mon", "Tue", "Wed", "Thu"];
-    const days = dayOrder;
 
-    // Convert office hours into same format as classes
-    const officeItems = officeHoursArray.map(oh => ({
+    const officeItems = officeHoursArray.map((oh) => ({
+      id: `oh-${oh.id}`,
       course: "Office Hour",
       room: "",
       day: normalizeDay(oh.day),
@@ -86,52 +88,40 @@ export default function FacultyClassSchedule() {
 
     const allItems = [...classesArray, ...officeItems];
 
-    let allTimes = [];
-    allItems.forEach((c) => {
-      allTimes.push(c.startMin);
-      allTimes.push(c.endMin);
-    });
-    allTimes = [...new Set(allTimes)].sort((a, b) => a - b);
+    return dayOrder.map((day) => {
+      const dayItems = allItems.filter((c) => (c.isOfficeHour ? [c.day] : getDaysForSlot(c.day)).includes(day));
+      const used = new Set();
+      const cells = [];
+      let i = 0;
 
-    const rows = [];
-    const occupied = {};
-
-    for (let i = 0; i < allTimes.length - 1; i++) {
-      const start = allTimes[i];
-      const row = {
-        timeSlot: `${formatTime(start)} - ${formatTime(allTimes[i + 1])}`,
-        cells: {},
-      };
-
-      days.forEach((d) => {
-        if (occupied[`${i}-${d}`]) {
-          row.cells[d] = undefined;
-          return;
-        }
-
-        const item = allItems.find((c) => {
-          const itemDays = c.isOfficeHour ? [c.day] : getDaysForSlot(c.day);
-          const isDayMatch = itemDays.includes(d);
-          const isStartRow = c.startMin === start;
-          return isDayMatch && isStartRow;
+      while (i < slots.length) {
+        const slot = slots[i];
+        const item = dayItems.find((c) => {
+          const key = `${c.id || c.course}-${c.startMin}-${c.endMin}-${c.day}`;
+          return !used.has(key) && c.startMin < slot.end && c.endMin > slot.start;
         });
 
         if (item) {
           let span = 0;
-          for (let k = i; k < allTimes.length - 1; k++) {
-            if (allTimes[k] >= item.endMin) break;
+          while (
+            i + span < slots.length &&
+            item.startMin < slots[i + span].end &&
+            item.endMin > slots[i + span].start
+          ) {
             span++;
           }
-          row.cells[d] = { content: item, rowSpan: span };
-          for (let k = i + 1; k < i + span; k++) occupied[`${k}-${d}`] = true;
+          const key = `${item.id || item.course}-${item.startMin}-${item.endMin}-${item.day}`;
+          used.add(key);
+          cells.push({ type: "class", colSpan: span, content: item });
+          i += span;
         } else {
-          row.cells[d] = null;
+          cells.push({ type: "empty", colSpan: 1 });
+          i += 1;
         }
-      });
+      }
 
-      rows.push(row);
-    }
-    return { rows, days };
+      return { day, cells };
+    });
   }
 
   async function fetchClassSchedule() {
@@ -248,6 +238,13 @@ export default function FacultyClassSchedule() {
     return (h || 0) * 60 + (m || 0);
   }
 
+  function formatHM(minutes) {
+    if (!minutes && minutes !== 0) return "";
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+  }
+
   function normalizeDay(day) {
     // Normalize to title case: sun -> Sun, mon -> Mon, etc.
     return day.charAt(0).toUpperCase() + day.slice(1).toLowerCase();
@@ -322,72 +319,168 @@ export default function FacultyClassSchedule() {
     }
   }
 
-  if (loading) return <div className="p-6">Loading...</div>;
-
-  if (classes.length === 0) {
-    return (
-      <div className="p-8">
-        <h1 className="text-3xl font-bold mb-6">Weekly Class Schedule</h1>
-        <div className="bg-gray-50 rounded-lg p-8 text-center text-gray-500">
-          <p>No classes scheduled yet.</p>
-        </div>
-      </div>
-    );
+  async function deleteOfficeHour(id) {
+    if (!window.confirm("Delete this office hour?")) return;
+    const { error } = await supabase.from("office_hours").delete().eq("id", id);
+    if (error) {
+      alert("Failed to delete office hour");
+      return;
+    }
+    fetchOfficeHours();
   }
 
-  const { rows, days } = generateRoutineTable(classes, officeHours);
+  if (loading) return <div className="p-6">Loading...</div>;
+
+  const dayRows = classes.length > 0 || officeHours.length > 0 ? buildTable(classes, officeHours) : [];
 
   return (
     <>
       <style>{`
-        @media print {
-          @page {
-            size: A4 landscape;
-            margin: 6mm;
-          }
-          /* Hide everything by default via visibility, then re-show our section */
-          body * { visibility: hidden !important; }
-          .print-schedule, .print-schedule * { visibility: visible !important; }
-          .print-header { display: block !important; }
-          .print-schedule { position: static; width: 100%; max-width: 1000px; padding: 0; margin: 0 auto; }
-          /* Remove visual styles that can cause overflow/misalignment in print */
-          .print-schedule .shadow-sm, .print-schedule .rounded-lg { box-shadow: none !important; border-radius: 0 !important; }
-          .print-schedule .bg-white { background: transparent !important; }
-          /* Avoid table breaking and extra blank pages */
-          .print-schedule table { page-break-inside: avoid; width: 100%; border-collapse: collapse; margin: 0 auto; }
-          .print-schedule { page-break-after: avoid; }
-          thead { display: table-header-group; }
-          tfoot { display: table-footer-group; }
-          /* Compact table to fit a single page */
-          .print-schedule th, .print-schedule td { padding: 6px !important; font-size: 11px !important; }
-        }
-        /* Hide print header on screen */
-        .print-header { display: none; }
-        /* Optional: keep table styles consistent */
-        @media print {
-          .print-schedule table {
-            width: 100%;
-            border-collapse: collapse;
-          }
-          .print-schedule th, .print-schedule td {
-            border: 1px solid #000 !important;
-            padding: 8px !important;
-            text-align: center;
-          }
-          .print-schedule th {
-            background-color: #8B3A3A !important;
-            color: white !important;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-          .print-schedule .office-hour-cell {
-            background-color: #f0e5e5 !important;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-        }
-      `}</style>
-      <div className="p-8 bg-gray-50 min-h-screen">
+/* ===============================
+   SCREEN (DEFAULT)
+   =============================== */
+.print-header {
+  display: none;
+}
+
+/* ===============================
+   PRINT (ONLY THIS ONE)
+   =============================== */
+@media print {
+
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: auto;
+    background: white;
+  }
+
+  /* Hide EVERYTHING by default */
+  body * {
+    visibility: hidden !important;
+  }
+
+  /* Show ONLY printable content */
+  .print-schedule,
+  .print-schedule * {
+    visibility: visible !important;
+  }
+
+  /* Remove layout impact of hidden content */
+  body {
+    overflow: hidden;
+  }
+
+  /* Printable container */
+  .print-schedule {
+    position: absolute;
+    top: 0;
+    left: 0;
+      zoom: 0.9;
+
+
+    width: 100%;
+    max-width: none;
+
+    margin: 0;
+    padding: 0;
+
+    background: white;
+    box-shadow: none;
+    border-radius: 0;
+  }
+
+  /* ===============================
+   SCALE TABLE TO FIT ONE PAGE
+   =============================== */
+.print-schedule table {
+  transform: scale(0.9);
+  transform-origin: top center;
+}
+
+
+  /* ===============================
+     HEADER (THIS WAS MISSING)
+     =============================== */
+  .print-header {
+    display: block !important;
+    text-align: center;
+    margin-bottom: 6px;
+    line-height: 1.2;
+  }
+
+  .print-header div:nth-child(1) {
+    font-size: 18px;
+    font-weight: 800;
+  }
+
+  .print-header div {
+    font-size: 11px;
+  }
+
+  /* ===============================
+     TABLE
+     =============================== */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    page-break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  th, td {
+    border: 1.2px solid #999;
+    padding: 6px;
+    font-size: 10.5px;
+    text-align: center;
+    vertical-align: middle;
+    word-break: break-word;
+  }
+
+  th {
+    background: #8B3A3A !important;
+    color: white !important;
+    font-size: 11px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Day column */
+  th:first-child,
+  td:first-child {
+    width: 80px;
+    font-weight: bold;
+  }
+
+  /* Slot columns */
+  th:not(:first-child),
+  td:not(:first-child) {
+    width: calc((100% - 80px) / 7);
+  }
+
+  /* Office hour highlight */
+  .office-hour-cell {
+    background: #f0e5e5 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  tr {
+    page-break-inside: avoid;
+  }
+}
+`}</style>
+
+      <div className="p-8 bg-gray-50 min-h-screen print\:p-0 print\:bg-white print\:min-h-0">
       <div className="flex items-center justify-between mb-6 no-print">
         <h1 className="text-3xl font-bold text-gray-900">Weekly Class Schedule</h1>
         <div className="flex items-center gap-3">
@@ -398,7 +491,7 @@ export default function FacultyClassSchedule() {
           <button onClick={() => setShowOfficeModal(true)} className="px-4 py-2 bg-[#8B3A3A] text-white rounded-lg font-semibold hover:bg-[#6B2A2A]">Add Office Hours</button>
         </div>
       </div>
-      <div className="overflow-x-auto bg-white rounded-lg shadow-sm print-schedule">
+      <div className="overflow-x-auto bg-white rounded-lg shadow-sm print-schedule print\:bg-white print\:shadow-none print\:rounded-none print\:m-0 print\:p-0">
         <div className="print-header grid grid-cols-1 gap-1 mb-3 text-center">
           <div className="font-extrabold text-xl">Class Schedule and Office Hours</div>
           <div className="text-sm">{facultyInfo.full_name || 'Faculty Name'}</div>
@@ -410,68 +503,75 @@ export default function FacultyClassSchedule() {
         <table className="w-full border-collapse">
           <thead>
             <tr className="bg-[#8B3A3A]">
-              <th className="px-6 py-4 text-left font-semibold text-white border-b-2 border-[#8B3A3A]">Time</th>
-              {days.map((day) => (
-                <th key={day} className="px-6 py-4 text-center font-semibold text-white border-b-2 border-[#8B3A3A]">
-                  {day}
+              <th className="px-6 py-4 text-left font-semibold text-white border-b-2 border-[#8B3A3A]">Day</th>
+              {slots.map((slot) => (
+                <th key={slot.label} className="px-4 py-3 text-center font-semibold text-white border-b-2 border-[#8B3A3A]">
+                  {slot.label}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, rowIndex) => {
-              const hasHoveredCourse = hoveredCourse && days.some((day) => {
-                const cell = row.cells[day];
-                return cell?.content?.course === hoveredCourse;
-              });
-
-              return (
-                <tr
-                  key={rowIndex}
-                  className={`${rowIndex % 2 === 0 ? "bg-white" : "bg-rose-50"} ${hasHoveredCourse ? "bg-rose-100" : ""} transition-colors duration-150`}
-                >
-                  <td className="px-6 py-4 font-medium text-gray-800 whitespace-nowrap align-top border-b border-gray-200">
-                    {row.timeSlot}
-                  </td>
-                  {days.map((day) => {
-                    const cell = row.cells[day];
-                    if (cell === undefined) return null;
-
-                    return (
-                      <td
-                        key={`${rowIndex}-${day}`}
-                        className={`px-4 py-3 text-center align-middle border-b border-l border-gray-200 transition-all duration-150 ${cell?.content?.isOfficeHour ? "bg-[#8B3A3A]/30 office-hour-cell" : ""} ${cell?.content ? "cursor-pointer group" : ""}`}
-                        rowSpan={cell?.rowSpan || 1}
-                        onMouseEnter={() => cell?.content && setHoveredCourse(cell.content.course)}
-                        onMouseLeave={() => setHoveredCourse(null)}
-                      >
-                        {cell?.content ? (
-                          cell.content.isOfficeHour ? (
-                            <div className="flex flex-col items-center justify-center py-2 h-full">
-                              <div className="font-bold text-[#8B3A3A] text-base">Office Hour</div>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col items-center justify-center py-2 h-full">
-                              <div className="font-bold text-[#8B3A3A] text-base mb-1">{cell.content.course}</div>
+            {dayRows.map((row, rowIndex) => (
+              <tr
+                key={row.day}
+                className={`${rowIndex % 2 === 0 ? "bg-white" : "bg-rose-50"} transition-colors duration-150`}
+              >
+                <td className="px-6 py-4 font-bold text-gray-800 whitespace-nowrap align-top border-b border-gray-200">
+                  {row.day}
+                </td>
+                {row.cells.map((cell, idx) => {
+                  const isOffice = cell.type === "class" && cell.content?.isOfficeHour;
+                  return (
+                    <td
+                      key={`${row.day}-${idx}`}
+                      colSpan={cell.colSpan}
+                      className={`px-4 py-3 text-center align-middle border-b border-l border-gray-200 transition-all duration-150 ${isOffice ? "bg-[#8B3A3A]/30 office-hour-cell" : ""} ${cell.type === "class" ? "cursor-pointer group" : ""}`}
+                      onMouseEnter={() => cell.type === "class" && setHoveredCourse(cell.content.course)}
+                      onMouseLeave={() => setHoveredCourse(null)}
+                    >
+                      {cell.type === "class" ? (
+                        <div
+                          className="flex flex-col items-center justify-center py-2 h-full relative"
+                          onMouseEnter={() => isOffice && setHoveredOfficeHourId(cell.content.id)}
+                          onMouseLeave={() => isOffice && setHoveredOfficeHourId(null)}
+                        >
+                          <div className={`font-bold ${isOffice ? "text-[#8B3A3A]" : "text-[#8B3A3A]"} text-base mb-1`}>
+                            {isOffice ? "Office Hour" : `${cell.content.course}${cell.content.section ? ` (${cell.content.section})` : ""}`}
+                          </div>
+                          {!isOffice && (
+                            <>
                               <div className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded group-hover:bg-white transition-colors mb-1">
                                 {cell.content.room}
                               </div>
-                              {cell.content.section && (
-                                <span className="text-[11px] font-semibold text-gray-700 bg-rose-100 px-2 py-1 rounded-full">
-                                  Sec {cell.content.section}
-                                </span>
+                              <div className="text-xs font-bold text-gray-500 mt-1">{cell.content.timeSlot || (cell.content.startMin !== undefined && cell.content.endMin !== undefined ? `${formatHM(cell.content.startMin)} - ${formatHM(cell.content.endMin)}` : "")}</div>
+                            </>
+                          )}
+                          {isOffice && (
+                            <>
+                              <div className="text-xs font-bold text-gray-700 bg-white/60 px-2 py-1 rounded">
+                                {formatHM(cell.content.startMin)} - {formatHM(cell.content.endMin)}
+                              </div>
+                              {hoveredOfficeHourId === cell.content.id && (
+                                <button
+                                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-700 transition"
+                                  title="Delete office hour"
+                                  onClick={() => deleteOfficeHour(cell.content.id.replace('oh-', ''))}
+                                >
+                                  ×
+                                </button>
                               )}
-                            </div>
-                          )
-                        ) : (
-                          <span className="text-gray-300">—</span>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

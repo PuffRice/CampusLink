@@ -181,7 +181,6 @@ export default function AddStudentModal({ onClose, onSuccess, editData }) {
       const { error: userError, data: userData } = await supabase.from("users").insert({
         email,
         full_name: fullName,
-        password_hash: "",
         role: "student",
         first_login: true,
       }).select();
