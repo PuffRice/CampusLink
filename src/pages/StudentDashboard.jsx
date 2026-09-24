@@ -5,6 +5,7 @@ import Advising from "./Advising";
 import EnrolledClassesLMS from "./EnrolledClassesLMS";
 import ClassSchedule from "./ClassSchedule";
 import GradeReport from "./GradeReport";
+import TAManagement from "./TAManagement";
 import ServiceRequest from "../components/ServiceRequest";
 
 const defaultStats = [
@@ -20,7 +21,7 @@ const announcements = [
   { title: "Wellness hour added on Thursdays", meta: "Campus Life • Dec 11" },
 ];
 
-const sidebarItems = [
+const baseSidebarItems = [
   { icon: "bx-grid-alt", label: "Dashboard" },
   { icon: "bx-user-check", label: "Advising" },
   { icon: "bx-book", label: "Enrolled Classes" },
@@ -42,6 +43,7 @@ export default function StudentDashboard() {
   const [departmentName, setDepartmentName] = useState("");
   const [departmentLoaded, setDepartmentLoaded] = useState(false);
   const [userName, setUserName] = useState("");
+  const [isTA, setIsTA] = useState(false);
 
   useEffect(() => {
     async function loadSemesterName() {
@@ -68,6 +70,18 @@ export default function StudentDashboard() {
       }
 
       const userId = data.id;
+
+      const { data: taAssignment, error: taError } = await supabase
+        .from("ta_assignments")
+        .select("id")
+        .eq("student_id", userId)
+        .eq("active", true)
+        .maybeSingle();
+      if (taError) {
+        console.error("Unable to check TA assignment:", taError);
+      } else {
+        setIsTA(Boolean(taAssignment));
+      }
 
       // Get user's full name
       const { data: userData } = await supabase
@@ -447,6 +461,10 @@ export default function StudentDashboard() {
     window.location.href = "/";
   }
 
+  const sidebarItems = isTA
+    ? [...baseSidebarItems, { icon: "bx-chalkboard", label: "TA Management" }]
+    : baseSidebarItems;
+
   return (
     <div className="min-h-screen flex bg-gradient-to-br from-slate-50 via-blue-50 to-slate-50">
       {/* Sidebar */}
@@ -505,6 +523,8 @@ export default function StudentDashboard() {
             <ServiceRequest userRole="student" />
           ) : activeMenu === "Grade Report" ? (
             <GradeReport />
+          ) : activeMenu === "TA Management" && isTA ? (
+            <TAManagement />
           ) : (
             <div className="p-8">
               {/* Hero Section */}

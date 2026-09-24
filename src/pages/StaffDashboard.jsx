@@ -4,6 +4,7 @@ import AddStudent from "./AddStudent";
 import AddFaculty from "./AddFaculty";
 import CourseClasses from "./CourseClasses";
 import SystemConfig from "./SystemConfig";
+import AdminTAManagement from "./AdminTAManagement";
 import ServiceRequestManagement from "../components/ServiceRequestManagement";
 import UserProfile from "../components/UserProfile";
 
@@ -154,6 +155,8 @@ export default function StaffDashboard() {
         return <CourseClasses />;
       case "config":
         return <SystemConfig />;
+      case "ta-assignments":
+        return <AdminTAManagement />;
       case "service-requests":
         return <ServiceRequestManagement />;
       case "dashboard":
@@ -389,6 +392,21 @@ export default function StaffDashboard() {
             >
               <i className="bx bxs-cog text-lg mr-2 align-middle" aria-hidden="true"></i>
               System Config
+            </button>
+          )}
+
+          {/* Admin Only: Teaching Assistant assignments */}
+          {userRole === "admin" && (
+            <button
+              onClick={() => setActiveOption("ta-assignments")}
+              className={`px-4 py-3 rounded transition text-left ${
+                activeOption === "ta-assignments"
+                  ? "bg-brandButton"
+                  : "bg-menuBg hover:bg-menuHover"
+              }`}
+            >
+              <i className="bx bxs-user-badge text-lg mr-2 align-middle" aria-hidden="true"></i>
+              TA Assignments
             </button>
           )}
 
